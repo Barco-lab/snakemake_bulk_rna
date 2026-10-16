@@ -1,106 +1,103 @@
+"""
+每个样本一行的汇总表。reads 数按"片段"计：PE 为 read pairs，SE 为 reads，比对率分子分母口径一致。
+  raw_reads      trim 前（trim_galore 报告 Total reads processed）
+  clean_reads    进入 hisat2 的 reads（trim / polyA 切除之后）
+  mapping_rate   hisat2 overall alignment rate
+  unique_rate    唯一比对（PE 为 concordantly exactly 1 time）
+  umi_dedup_*    UMI 去重（仅 umi != none）：按 read 名计数（PE 为 pairs），多重比对的 read 只算一次
+                 umi_dup_rate = 1 - 去重后 reads / 去重前比对上的 reads
+  assigned_*     featureCounts Assigned
+"""
 import re
-import logging
-import pandas as pd
+import sys
 from pathlib import Path
 
-# 配置
-trim_logs_dir = Path("Results/02_trim_out/logs/")  # 输入目录1
-align_logs_dir = Path("Results/04_align_out/logs/")  # 输入目录2
-outputfile = Path("Results/summary.csv")
+import pandas as pd
+
+sys.stderr = open(snakemake.log[0], "w")
 
 
-# trim_logs_dir = Path(snakemake.params.trim_log_dir)  # 输入目录1
-# align_logs_dir = Path(snakemake.params.align_log_dir)  # 输入目录2
-# outputfile = Path(snakemake.output.summary)
-
-# 设置日志
-logging.basicConfig(level=logging.WARNING, format="%(levelname)s: %(message)s")
-
-def extract_clean_aligned_reads(log_file):
-    """Extract aligned read counts from a HISAT2 log file."""
-    with open(log_file, 'r') as f:
-        content = f.read()
-
-    # Primary pattern: "aligned concordantly exactly 1 time" and ">1 times"
-    clean_reads_match = re.search(r"(\d+) reads; of these:", content)
-    exactly_1_match = re.search(r"(\d+) \(.*?\) aligned concordantly exactly 1 time", content)
-    more_than_1_match = re.search(r"(\d+) \(.*?\) aligned concordantly >1 times", content)
-
-    # Secondary pattern: "aligned exactly 1 time" and ">1 times"
-    if not exactly_1_match or not more_than_1_match:
-        exactly_1_match = re.search(r"(\d+) \(.*?\) aligned exactly 1 time", content)
-        more_than_1_match = re.search(r"(\d+) \(.*?\) aligned >1 times", content)
-
-    # Convert matches to integers and sum them
-    clean_reads = int(clean_reads_match.group(1)) if clean_reads_match else 0
-    aligned_reads = sum(int(m.group(1)) for m in [exactly_1_match, more_than_1_match] if m)
-    return clean_reads, aligned_reads
+def grab(pattern, text, cast=int, default=None):
+    m = re.search(pattern, text)
+    return cast(m.group(1).replace(",", "")) if m else default
 
 
-def extract_raw_reads(log_file):
-    with open(log_file, 'r') as f:
-        content = f.read()
-
-    # Primary regex patterns
-    input_reads = re.search(r"Total number of sequences analysed:\s*(\d+)", content)
-
-    # Secondary fallback patterns
-    if not input_reads:
-        input_reads = re.search(r"(\d+) sequences processed in total", content)
-
-    # Convert matches to integers (default to 0 if not found)
-    input_reads_value = int(input_reads.group(1)) if input_reads else 0
-
-    # Logging warnings if values are missing
-    if not input_reads:
-        logging.warning(f"{log_file} 没有找到 input_reads")
-
-    return input_reads_value
+def parse_trim(path):
+    return grab(r"Total reads processed:\s+([\d,]+)", Path(path).read_text())
 
 
-def process_logs(trim_logs_dir, align_logs_dir):
-    """Process all log files in the input directories."""
-    raw_reads = {}
-    clean_reads = {}
-    mapped_reads = {}
-    mapping_rates = {}
-
-    # 处理来自 trim_logs_dir 目录的日志文件
-    for log_file in trim_logs_dir.glob("*.log"):
-        if log_file.stat().st_size > 0:  # 检查文件大小是否不为 0
-            file_name_without_log = log_file.stem  # 获取去掉 .log 的文件名
-            raw = extract_raw_reads(log_file)
-            raw_reads[file_name_without_log] = raw
-
-    # 处理来自 align_logs_dir 目录的日志文件
-    for log_file in align_logs_dir.glob("*.log"):
-        if log_file.stat().st_size > 0:  # 检查文件大小是否不为 0
-            file_name_without_log = log_file.stem
-            clean, aligned_reads = extract_clean_aligned_reads(log_file)
-            mapped_reads[file_name_without_log] = aligned_reads
-            clean_reads[file_name_without_log] = clean
-            mapping_rates[file_name_without_log] = aligned_reads / clean if clean > 0 else 0 # 防止除零错误
-
-    # 合并数据到 DataFrame
-    df = pd.DataFrame({
-        "raw_reads": raw_reads,
-        "clean_reads": clean_reads,
-        "mapped_reads": mapped_reads,
-        "mapping_rate": mapping_rates
-    }).reset_index().rename(columns={"index": "filename"})  # filename 是列，而不是索引
-
-    #print(f"{df.head()}")
-
-    # 格式化数值列
-    df["raw_reads"] = df["raw_reads"].astype("Int64")
-    df["clean_reads"] = df["clean_reads"].astype("Int64")
-    df["mapped_reads"] = df["mapped_reads"].astype("Int64")
-    df["mapping_rate"] = df["mapping_rate"].round(4)  # 保留 4 位小数
-
-    # 结果排序和保存
-    df.to_csv(outputfile, sep='\t', index=False, encoding='utf-8')
-    print(f"Saved summary to {outputfile}")
+def parse_hisat2(path):
+    """hisat2 --new-summary 格式。"""
+    t = Path(path).read_text()
+    total = grab(r"Total (?:pairs|reads): (\d+)", t)
+    rate = grab(r"Overall alignment rate: ([\d.]+)%", t, float)
+    uniq = grab(r"Aligned concordantly 1 time: (\d+)", t)
+    if uniq is None:
+        uniq = grab(r"Aligned 1 time: (\d+)", t)
+    return total, rate, uniq
 
 
-if __name__ == "__main__":
-    process_logs(trim_logs_dir, align_logs_dir)
+def parse_umi(path):
+    r = pd.read_csv(path, sep="\t").iloc[0]
+    return int(r["reads_before"]), int(r["reads_after"])
+
+
+def parse_fc_summary(path):
+    df = pd.read_csv(path, sep="\t", index_col=0)
+    col = df.iloc[:, 0]
+    return int(col.get("Assigned", 0)), int(col.sum())
+
+
+rows = []
+umi_counts = {Path(p).name.removesuffix(".read_counts.tsv"): p for p in snakemake.input.umi}
+for i, sample in enumerate(snakemake.params.samples):
+    meta = snakemake.params.meta[sample]
+    strand = pd.read_csv(snakemake.input.strand[i], sep="\t").iloc[0]
+    raw = parse_trim(snakemake.input.trim[i])
+    clean, rate, uniq = parse_hisat2(snakemake.input.hisat2[i])
+    assigned, fc_total = parse_fc_summary(snakemake.input.counts[i] + ".summary")
+
+    row = {
+        "sample": sample,
+        "layout": meta["layout"],
+        "protocol": meta["protocol"],
+        "umi": meta["umi"],
+        "strand_provided": strand["provided"],
+        "strand_inferred": strand["inferred"],
+        "strand_used": strand["used"],
+        "strand_status": strand["status"],
+        "raw_reads": raw,
+        "clean_reads": clean,
+        "clean_ratio": clean / raw if raw and clean is not None else None,
+        "mapping_rate": rate / 100 if rate is not None else None,
+        "unique_rate": uniq / clean if clean and uniq is not None else None,
+        "umi_dedup_reads": None,
+        "umi_dup_rate": None,
+        "assigned": assigned,
+        "assigned_rate": assigned / fc_total if fc_total else None,
+    }
+    if meta["umi"] != "none":
+        n_in, n_out = parse_umi(umi_counts[sample])
+        row["umi_dedup_reads"] = n_out
+        row["umi_dup_rate"] = 1 - n_out / n_in if n_in else None
+    for k, v in row.items():
+        if v is None and not k.startswith("umi_"):
+            print(f"WARNING: {sample} 未能解析 {k}", file=sys.stderr)
+    rows.append(row)
+
+df = pd.DataFrame(rows)
+if (df["umi"] == "none").all():
+    df = df.drop(columns=["umi_dedup_reads", "umi_dup_rate"])
+for c in df.columns:
+    if c.endswith(("_rate", "_ratio")):
+        df[c] = df[c].astype(float).round(4)
+    elif c.endswith(("_reads", "assigned")):
+        df[c] = df[c].astype("Int64")
+df.to_csv(snakemake.output.tsv, sep="\t", index=False)
+
+# MultiQC 自定义表格
+with open(snakemake.output.mqc, "w") as f:
+    f.write("# id: 'pipeline_summary'\n# section_name: 'Pipeline summary'\n"
+            "# description: 'results/tables/summary.tsv（PE 按 read pairs 计）'\n"
+            "# plot_type: 'table'\n")
+    df.to_csv(f, sep="\t", index=False)

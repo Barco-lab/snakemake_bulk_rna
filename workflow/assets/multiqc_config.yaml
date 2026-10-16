@@ -1,0 +1,27 @@
+title: "bulk RNA-seq"
+subtitle: "snakemake_bulk_rna"
+report_comment: "PE 样本的 reads 数按 read pairs 计。详细数值见 results/tables/summary.tsv。"
+
+module_order:
+  - custom_content
+  - fastqc:
+      name: "FastQC (raw)"
+      path_filters: ["*/fastqc_raw/*"]
+  - cutadapt
+  - fastqc:
+      name: "FastQC (trimmed)"
+      path_filters: ["*/fastqc_trimmed/*"]
+  - umitools
+  - hisat2
+  - featurecounts
+
+extra_fn_clean_exts:
+  - ".featureCounts.txt"
+  - ".fastq.gz"
+  - ".summary.txt"
+  - ".dedup.log"
+  - ".extract.log"
+
+table_sample_merge:
+  "Read 1": "_R1"
+  "Read 2": "_R2"

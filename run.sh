@@ -1,115 +1,109 @@
-#!/bin/bash
-# 用于处理单端和双端数据并调用 Snakemake 运行流程
-# 用法: bash run.sh <fq_dir> -y
+#!/usr/bin/env bash
+# bulk RNA-seq 流程启动脚本（本地运行）
+#
+#   bash run.sh -c <config.yaml> -i <fq_dir> [-o <outdir>] [-j 32] [-n] [-y] [-- <其它 snakemake 参数>]
+#
+# -c 指定的配置文件不存在时，会从默认配置生成一份模板，修改后再次运行即可。
+# 首次运行会在 <outdir> 中生成 samples.tsv，确认无误后再次运行即可。
+set -euo pipefail
 
-# 检查输入目录是否存在
-if [ -z "$1" ]; then
-    echo "错误: 未指定输入目录！"
-    exit 1
-elif [ ! -d "$1" ]; then
-    echo "错误：目录 $1 不存在！"
-    exit 1
-fi
+PIPE_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+SMK_ENV=${SMK_ENV:-$HOME/.conda/envs/omics}   # 提供 snakemake（>= 9.12）的环境
 
-# 输入原始数据所在文件夹
-fq_dir="${1}"
-echo "原始数据目录: $fq_dir"
+usage() {
+    cat <<EOF
+用法: bash run.sh -c <config.yaml> [选项] [-- <snakemake 参数>]
 
-# 激活 Snakemake 的 Conda 环境
-source ~/.bashrc
-conda activate snakemake_env
+  -c FILE  项目配置文件（必填）。文件不存在时从默认配置生成模板后退出
+           可以只写与默认配置（$PIPE_DIR/config/config.yaml）不同的参数
+  -i DIR   fastq 目录（.fastq.gz / .fq.gz；_1/_2、_R1/_R2 自动识别为双端）
+  -o DIR   输出目录（结果、日志、samples.tsv 都在这里；默认 ./rnaseq_out）
+  -s FILE  使用已有的样本表（不扫描 -i）
+  -j INT   最多同时使用的 CPU 核数（默认 32）
+  -n       只预览（dry-run），不实际运行
+  -y       跳过运行前的确认
+  -h       显示帮助
 
-# 调用脚本生成单端和双端数据列表
+示例:
+  bash run.sh -c project1/config.yaml                             # 生成配置模板
+  bash run.sh -c project1/config.yaml -i rawdata -o project1 -n   # 生成样本表并预览
+  nohup bash run.sh -c project1/config.yaml -o project1 -j 48 -y > project1/run.log 2>&1 &
+  bash run.sh -c project1/config.yaml -o project1 -n -- --until featurecounts   # 只跑到某一步
+EOF
+}
 
-# 初始化数组
-json_array_pe=()
-json_array_se=()
-json_array=()
+die() { echo "错误: $*" >&2; exit 1; }
 
-# 遍历所有 .fastq.gz 文件
-for file in $(find "$fq_dir" -maxdepth 1 -name "*.fastq.gz" | sort); do
-
-    file=$(realpath "$file")  # 处理路径中的特殊字符，比如空格
-
-    # 检查是否是带 _1.fastq.gz 或 _2.fastq.gz 的 PE 文件
-    if [[ "$file" =~ _1.fastq.gz$ ]]; then
-        # 获取对应的 _2 文件
-        file2="${file/_1.fastq.gz/_2.fastq.gz}"
-
-        if [ -f "$file2" ]; then
-            # 如果 _2 文件存在，则添加到 PE 数组
-            json_entry_pe="{\"read1\": \"$file\", \"read2\": \"$file2\"}"
-            json_array_pe+=("$json_entry_pe")
-            json_array+=("$json_entry_pe")
-        fi
-    elif [[ ! "$file" =~ _1.fastq.gz$ && ! "$file" =~ _2.fastq.gz$ ]]; then
-        # 如果不是 _1 或 _2，视为 SE 文件
-        json_entry_se="{\"read1\": \"$file\"}"
-        json_array_se+=("$json_entry_se")
-        json_array+=("$json_entry_se")
-    fi
+config="" fq_dir="" outdir="" samples="" cores=32 dry=0 yes=0
+while getopts "c:i:o:s:j:nyh" opt; do
+    case $opt in
+        c) config=$OPTARG ;;
+        i) fq_dir=$OPTARG ;;
+        o) outdir=$OPTARG ;;
+        s) samples=$OPTARG ;;
+        j) cores=$OPTARG ;;
+        n) dry=1 ;;
+        y) yes=1 ;;
+        h) usage; exit 0 ;;
+        *) usage; exit 1 ;;
+    esac
 done
+shift $((OPTIND - 1))
+[ "${1:-}" = "--" ] && shift
+extra=("$@")
 
-# 将数组转换为 JSON 字符串
-json_output_pe=$(IFS=,; echo "[${json_array_pe[*]}]")
-json_output_se=$(IFS=,; echo "[${json_array_se[*]}]")
-json_output=$(IFS=,; echo "[${json_array[*]}]")
-
-#echo "$json_output"
-
-# 检查 JSON 数据是否为空并输出相应的提示信息
-if [[ -z "$json_output_se" || "$json_output_se" == "[]" ]]; then
-    echo "没有单端数据"
-    json_output_se=""
-else
-    echo "即将处理如下单端数据:"
-    echo "$json_output_se" | jq .
-fi
-
-if [[ -z "$json_output_pe" || "$json_output_pe" == "[]" ]]; then
-    echo "没有双端数据"
-    json_output_pe=""
-else
-    echo "即将处理如下双端数据:"
-    echo "$json_output_pe" | jq .
-fi
-
-
-# 运行 Snakemake 工作流（预览模式）
-# snakemake --until extract_methylation_pe --touch # 可以更新文件状态，避免重复生成
-echo "运行 Snakemake （仅预览）..."
-snakemake \
-    -np \
-    --use-conda \
-    --config fq_dir="$fq_dir" reads="$json_output"
-
-# 提示是否确认实际执行任务
-# 检查是否传递了 -y 参数
-if [[ "$2" == "-y" ]]; then
-    confirm_run="y"
-else
-    read -p "是否确认执行任务（实际提交作业）？(y/n): " confirm_run
-fi
-
-if [[ "$confirm_run" != "y" && "$confirm_run" != "Y" ]]; then
-    echo "任务已取消！"
+# ---- config ----
+[ -n "$config" ] || { usage; die "必须用 -c 指定配置文件"; }
+if [ ! -f "$config" ]; then
+    mkdir -p "$(dirname "$config")"
+    cp "$PIPE_DIR/config/config.yaml" "$config"
+    echo ">> 已生成配置模板 $config"
+    echo "   请修改其中的物种、文库类型等参数（不需要改的参数可以删掉，会使用默认值），然后再次运行。"
     exit 0
 fi
+config=$(realpath "$config")
 
-# 实际运行 Snakemake 工作流
-echo "运行 Snakemake ..."
-snakemake \
-    --executor cluster-generic \
-    --cluster-generic-submit-cmd "python workflow/scripts/submit_job.py --config config/cluster_config.yaml --sample {wildcards} --rule {rule}" \
-    --latency-wait 60 \
-    --jobs 5 \
-    --use-conda \
-    --groups extract_tidy=30 qc=30 \
-    --config fq_dir="$fq_dir" reads="$json_output"
-#--sample {wildcards.sample}
+[ -x "$SMK_ENV/bin/snakemake" ] || die "找不到 $SMK_ENV/bin/snakemake（可通过 SMK_ENV=<环境路径> 指定）"
+# 注意：不要把 $SMK_ENV/bin 加到 PATH 前面，否则会挡住各规则 conda 激活的环境
 
-echo "任务已完成！"
+outdir=${outdir:-rnaseq_out}
+[ -d "$outdir" ] || echo ">> 创建输出目录 $outdir"
+mkdir -p "$outdir"
+outdir=$(realpath "$outdir")
 
+# ---- samples.tsv ----
+if [ -n "$samples" ]; then
+    [ -f "$samples" ] || die "样本表不存在: $samples"
+    [ "$(realpath "$samples")" = "$outdir/samples.tsv" ] || cp "$samples" "$outdir/samples.tsv"
+elif [ -f "$outdir/samples.tsv" ]; then
+    [ -n "$fq_dir" ] && echo ">> $outdir/samples.tsv 已存在，沿用该文件（如需重新扫描请先删除它）"
+else
+    [ -n "$fq_dir" ] || die "首次运行需要 -i <fq_dir> 或 -s <samples.tsv>"
+    [ -d "$fq_dir" ] || die "目录不存在: $fq_dir"
+    "$SMK_ENV/bin/python" "$PIPE_DIR/workflow/scripts/make_samplesheet.py" -i "$fq_dir" -o "$outdir/samples.tsv" \
+        --extra-cols strandedness,protocol,umi
+fi
+echo ">> 配置 $config"
+echo ">> 样本表 $outdir/samples.tsv:"
+column -t -s $'\t' "$outdir/samples.tsv" | sed 's/^/   /'
 
-    #--cluster-generic-submit-cmd 'qsub -q slst_pub -N rna_pe.pbs -l nodes=1:ppn=20 -l walltime=100:00:00' \
-    #--cluster-generic-submit-cmd "python workflow/scripts/submit_job.py --config config/cluster_config.yaml --sample {wildcards.sample} --rule "test" " \
+# 先读默认配置，再用 -c 的配置覆盖（嵌套的键逐层合并）
+smk=("$SMK_ENV/bin/snakemake"
+    --snakefile "$PIPE_DIR/workflow/Snakefile"
+    --directory "$outdir"
+    --configfile "$config"
+    --workflow-profile "$PIPE_DIR/workflow/profiles/default"
+    --cores "$cores")
+
+echo ">> 预览将要运行的任务..."
+"${smk[@]}" --dry-run --quiet rules ${extra[@]+"${extra[@]}"}
+[ "$dry" -eq 1 ] && exit 0
+
+if [ "$yes" -ne 1 ]; then
+    read -r -p "确认开始运行？(y/n): " ans
+    [[ "$ans" =~ ^[Yy]$ ]] || { echo "已取消"; exit 0; }
+fi
+
+echo ">> 开始运行 $(date '+%F %T')"
+"${smk[@]}" ${extra[@]+"${extra[@]}"}
+echo ">> 结束 $(date '+%F %T')，结果在 $outdir/results"

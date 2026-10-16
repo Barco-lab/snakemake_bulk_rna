@@ -1,39 +1,106 @@
-fq_dir: ""
+# =====================================================================
+#  snakemake_bulk_rna 配置
+#  默认配置，所有项目共用，一般不要直接修改。
+#  运行时用 run.sh -c <项目配置> 指定项目配置（不存在时以本文件为模板生成），
+#  项目配置中的参数覆盖这里的值；每次运行实际使用的配置会存档到 <outdir>/logs/run_<时间>/config.yaml
+# =====================================================================
 
-# Input Reads
-reads:
-  - read1: ""
-    read2: ""
+# 样本表（相对 outdir）。run.sh 会根据 fastq 目录自动生成
+samples: samples.tsv
 
-# Spe
-Spe: "mm10" # Species: "human" or "mm10" or "mm9"
+# 物种：references 中的一个 key
+genome: mm10
 
-# Environment
-conda_env: "base-omics"
-conda_cufflink: "py36"
+# ---------------------------------------------------------------------
+# 文库类型默认值。samples.tsv 中填写同名列可按样本覆盖（留空 = 用这里的值）
+# ---------------------------------------------------------------------
+library:
+  strandedness: auto     # auto | unstranded | forward | reverse
+                         #   forward: read1 与转录本同向（featureCounts -s 1，如 QuantSeq FWD、SMARTer Stranded v1）
+                         #   reverse: read1 与转录本反向（-s 2，dUTP / Illumina TruSeq Stranded，最常见）
+                         #   auto   : 比对后自动推断，结果见 results/tables/strandedness.tsv
+  protocol: full_length  # full_length | 3prime（3' 端测序只输出 counts/CPM，不算 TPM/FPKM）
+  umi: none              # none | read（UMI 在 read 序列中）| header（UMI 已在 read 名中）
 
-# Pipeline Configuration Parameters
-threads: 10
+umi:
+  # umi: read —— 比对前用 umi_tools extract 从序列中提取
+  extract_method: string # string | regex
+  pattern: NNNNNNNN      # read1 的 UMI pattern（string 模式下 N=UMI，X=保留的碱基）
+  pattern2: ""           # PE 且 read2 也带 UMI 时填写
+  # umi: header —— read 名中 UMI 前的分隔符（bcl-convert/bcl2fastq 为 ":"）
+  separator: ":"
+  dedup_extra: ""
+  dedup_extra_pe: "--unpaired-reads=discard --chimeric-pairs=discard"
+
+# ---------------------------------------------------------------------
+# 软件环境（已有 conda 环境的路径）
+# ---------------------------------------------------------------------
+envs:
+  main: /opt/anaconda/envs/in202506             # trim_galore hisat2 stringtie umi_tools multiqc ...
+  deeptools: /home/LAB/lab_ab_1/.conda/envs/omics   # deeptools、featureCounts
+fastqc_java: /usr/bin/java   # in202506 自带的 java 损坏，FastQC 改用系统 java；留空则用环境默认
+
+# 每个任务使用的线程数；总并发由 run.sh -j 控制
+threads:
+  default: 2
+  trim: 4
+  fastqc: 2
+  align: 16
+  count: 8
+  bigwig: 8
+samtools_sort_mem: 2G        # samtools sort 每线程内存
+
+# ---------------------------------------------------------------------
+# 参考基因组（hisat2 index 与 GTF 的染色体命名必须一致，流程会自动检查）
+# ---------------------------------------------------------------------
+references:
+  mm10:
+    hisat2_index: /data/index/hisat2/GRCm38_snp142/genome_snp
+    gtf: /data/genome/release-100/Mus_musculus.GRCm38.100.gtf
+  GRCm39:
+    hisat2_index: /data/index/hisat2/GRCm39/genome
+    gtf: /data/genome/release-104/Mus_musculus.GRCm39.104.gtf
+  GRCh38:
+    hisat2_index: /data/index/hisat2/GRCh38/genome
+    gtf: /data/genome/release-100/Homo_sapiens.GRCh38.100.gtf
+
+gtf_filter:
+  exclude_biotypes: [miRNA, snoRNA, snRNA]   # 定量前从 GTF 中去掉；[] 表示不过滤
+
+# ---------------------------------------------------------------------
+# 各步骤参数
+# ---------------------------------------------------------------------
 trim:
   params: "--quality 20 --max_n 4 --length 30 --phred33"
+  3prime:                # 仅 protocol: 3prime 的样本使用
+    clip_r1: 12          # 去掉 read1 5' 端 N 个碱基（QuantSeq FWD 推荐 12；带 UMI 时见 README）
+    polyA: true          # cutadapt 切除 read1 3' polyA
+    min_length: 20       # polyA 切除后的最短长度
+    extra: ""            # 额外的 trim_galore 参数，如 NovaSeq 数据可加 "--2colour 20" 去 polyG
 
 hisat2:
-  params: "-t -q -p 20 --dta-cufflinks -x"
-  index:
-    human: "/public/slst/home/zhenghui/guoli/database/index/hisat2_index/hg38/hg38.p14"
-    mm10: "/public/slst/home/leixy2023/database/mm10/index_hisat2/mm10_hisat2_index"
-    mm9: "/public/slst/home/zhenghui/guoli/database/index/hisat2_index/mm9/mm9_hisat2_index"
+  params: "-t"
 
-bamCoverage:
-  params: "--binSize 100 --normalizeUsing RPKM --numberOfProcessors 20"
+strand_check:
+  threshold: 0.8         # frac_forward >= 0.8 判为 forward，<= 0.2 判为 reverse
 
-gtf:
-  human: "/public/slst/home/zhenghui/guoli/database/gene_annotation/ucsc/hg38.refGene.gtf"
-  mm10:
-    genome: "/public/slst/home/leixy2023/database/mm10/gencode.vM25.annotation_remove_miRNA_snoRNA_snRNA.gtf"
-    repeats: "/home_data/home/slst/leixy2023/data/database/mm10/mm10_repeatmasker/mm10_rep.gtf"
-  mm9: "/public/slst/home/zhenghui/guoli/database/gene_annotation/ucsc/mm9.refGene.gtf"
+featurecounts:
+  params: "-t exon -g gene_id"
+  extra_attributes: gene_name,gene_biotype   # 写入矩阵的注释列（GENCODE GTF 用 gene_name,gene_type）
 
+stringtie:
+  enabled: false         # true 时额外输出 StringTie TPM/FPKM（仅 full_length 样本）
+  params: ""
 
+repeats:
+  enabled: false         # true 时需提供 repeat GTF（染色体命名需与 hisat2 index 一致）
+  gtf: ""
+  params: "-t exon -g gene_id"
 
+bigwig:
+  enabled: true
+  params: "--binSize 50 --normalizeUsing CPM"
+  split_strand: false    # true 时额外输出转录本正/负链 bigwig（.fwd.bw / .rev.bw）
 
+keep:
+  trimmed_fastq: false   # false 时 trim 后的 fastq 在比对完成后自动删除

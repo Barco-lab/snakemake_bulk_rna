@@ -1,0 +1,7 @@
+# 本地运行的默认参数（Snakemake 会自动加载 workflow/profiles/default）
+software-deployment-method: conda
+rerun-incomplete: true      # 中断后重跑时自动重做未完成的任务
+keep-going: true            # 某个样本出错时继续跑其它样本
+show-failed-logs: true      # 出错时直接打印对应 log
+printshellcmds: false
+latency-wait: 10
