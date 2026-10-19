@@ -1,3 +1,4 @@
+import gzip
 import os
 import re
 import shutil
@@ -108,6 +109,43 @@ PE_SAMPLES = [s for s in SAMPLES if SAMPLES_DF.loc[s, "fq2"]]
 SE_SAMPLES = [s for s in SAMPLES if not SAMPLES_DF.loc[s, "fq2"]]
 
 
+def umi_from_header(line, field, sep):
+    """按 umi.header_field / umi.separator 从 fastq header 行中取出 UMI。"""
+    name, _, comment = line[1:].rstrip("\n").partition(" ")
+    text = comment if field == "comment" else name
+    return re.sub(r"/[12]$", "", text).split(sep)[-1]
+
+
+def check_umi_headers(n=1000):
+    """抽查 umi=header 样本的前 n 条 reads，UMI 不合规时在启动阶段报错，避免静默去重失败。"""
+    u = config["umi"]
+    if u["header_field"] not in ("name", "comment"):
+        raise ValueError(f"umi.header_field 只能是 name 或 comment，当前为 '{u['header_field']}'")
+    errors = []
+    for s in SAMPLES_DF.index[SAMPLES_DF["umi"] == "header"]:
+        fq = SAMPLES_DF.loc[s, "fq1"]
+        opener = gzip.open if fq.endswith(".gz") else open
+        with opener(fq, "rt") as f:
+            heads = [line for i, line in zip(range(4 * n), f) if i % 4 == 0]
+        if u["header_field"] == "comment" and not all(" " in h for h in heads):
+            errors.append(f"{s}: header 中没有空格后的注释，例: {heads[0].strip()}")
+            continue
+        umis = [umi_from_header(h, u["header_field"], u["separator"]) for h in heads]
+        bad = [x for x in umis if not re.fullmatch(r"[ACGTN]+", x)]
+        if bad or len({len(x) for x in umis}) > 1:
+            errors.append(
+                f"{s}: 取出的 UMI 不合规（应为等长的 ACGTN 序列），例: {heads[0].strip()} -> "
+                f"'{umis[0]}'，长度 {sorted({len(x) for x in umis})}"
+            )
+    if errors:
+        raise ValueError(
+            "UMI 检查未通过，请检查 umi.header_field 与 umi.separator:\n  " + "\n  ".join(errors)
+        )
+
+
+check_umi_headers()
+
+
 def regex_of(names):
     """把样本名列表转为 wildcard 约束；空列表返回永不匹配的正则。"""
     return "|".join(re.escape(n) for n in names) if names else "(?!x)x"
@@ -137,9 +175,16 @@ def samples_with(key, *values):
 # ============================================================
 # 各步骤的输入
 # ============================================================
+def umi_in_comment(sample):
+    return lib(sample, "umi") == "header" and config["umi"]["header_field"] == "comment"
+
+
 def trim_input(wc):
-    """UMI 在序列中时先 extract，否则直接用原始数据。"""
-    d = "results/01_umi" if lib(wc.sample, "umi") == "read" else "results/00_raw"
+    """UMI 在序列中时先 extract，UMI 在 header 注释中时先改写 read 名，否则直接用原始数据。"""
+    if lib(wc.sample, "umi") == "read" or umi_in_comment(wc.sample):
+        d = "results/01_umi"
+    else:
+        d = "results/00_raw"
     return {r.lower(): f"{d}/{wc.sample}_{r}.fastq.gz" for r in reads_of(wc.sample)}
 
 

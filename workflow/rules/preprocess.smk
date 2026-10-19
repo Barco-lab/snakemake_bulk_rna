@@ -1,4 +1,4 @@
-# 原始数据 -> (UMI extract) -> trim_galore (-> 3' polyA 切除) ；raw / trimmed 各做一次 FastQC
+# 原始数据 -> (UMI extract / header 改写) -> trim_galore (-> 3' polyA 切除) ；raw / trimmed 各做一次 FastQC
 
 
 rule link_raw:
@@ -25,7 +25,7 @@ def umi_extract_params(wc):
 
 rule umi_extract_pe:
     wildcard_constraints:
-        sample=regex_of(PE_SAMPLES),
+        sample=regex_of([s for s in PE_SAMPLES if lib(s, "umi") == "read"]),
     input:
         r1="results/00_raw/{sample}_R1.fastq.gz",
         r2="results/00_raw/{sample}_R2.fastq.gz",
@@ -49,7 +49,7 @@ rule umi_extract_pe:
 
 rule umi_extract_se:
     wildcard_constraints:
-        sample=regex_of(SE_SAMPLES),
+        sample=regex_of([s for s in SE_SAMPLES if lib(s, "umi") == "read"]),
     input:
         r1="results/00_raw/{sample}_R1.fastq.gz",
     output:
@@ -63,6 +63,40 @@ rule umi_extract_se:
         ENV_MAIN
     shell:
         "umi_tools extract {params.args} -I {input.r1} -S {output.r1} -L {output.stats} 2> {log}"
+
+
+# ------------------------------------------------------------
+# UMI 在 header 注释中（umi=header 且 umi.header_field=comment）
+# 比对软件会丢掉 read 名空格后的内容，先把 UMI 移到 read 名末尾：
+#   @SRR123.1 V300...:2:CTCTCTAC:ACGCAGGCCC/1  ->  @SRR123.1_ACGCAGGCCC
+# ------------------------------------------------------------
+rule umi_header:
+    wildcard_constraints:
+        sample=regex_of([s for s in SAMPLES if umi_in_comment(s)]),
+    input:
+        "results/00_raw/{sample}_{read}.fastq.gz",
+    output:
+        temp("results/01_umi/{sample}_{read}.fastq.gz"),
+    params:
+        sep=config["umi"]["separator"],
+    threads: threads_for("trim")
+    log:
+        "<logs>/umi_header/{sample}_{read}.log",
+    conda:
+        ENV_MAIN
+    shell:
+        """
+        {{
+        pigz -dc -p 2 {input} \
+        | awk -v sep='{params.sep}' 'NR % 4 == 1 {{
+            i = index($0, " ")
+            if (i == 0) {{ print "第 " NR " 行 header 没有空格后的注释: " $0 > "/dev/stderr"; exit 1 }}
+            c = substr($0, i + 1); sub(/\/[12]$/, "", c); n = split(c, f, sep)
+            print substr($0, 1, i - 1) "_" f[n]; next
+        }} {{ print }}' \
+        | pigz -p {threads} > {output}
+        }} 2> {log}
+        """
 
 
 # ------------------------------------------------------------

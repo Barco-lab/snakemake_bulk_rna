@@ -78,7 +78,9 @@ rule hisat2:
 def umi_dedup_params(wc):
     u = config["umi"]
     args = "--extract-umi-method=read_id"
-    if lib(wc.sample, "umi") == "header":
+    if umi_in_comment(wc.sample):
+        args += " --umi-separator='_'"  # umi_header 已改写为 name_UMI
+    elif lib(wc.sample, "umi") == "header":
         args += f" --umi-separator='{u['separator']}'"
     if is_pe(wc.sample):
         args += f" --paired {u['dedup_extra_pe']}"

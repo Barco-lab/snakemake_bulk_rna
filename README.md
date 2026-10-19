@@ -104,7 +104,14 @@ q3_1     /data/q3_1.fastq.gz                                                 3pr
 |---|---|
 | `none` | 不去重（RNA-seq 常规做法） |
 | `read` | UMI 在 read 序列中：比对前 `umi_tools extract`（按 `umi.pattern`），比对后 `umi_tools dedup` |
-| `header` | UMI 已在 read 名中（如 bcl-convert 输出 `@...:ACGTACGT`）：比对后直接 `umi_tools dedup`，分隔符由 `umi.separator` 指定 |
+| `header` | UMI 已在 fastq 的 header 中：比对后 `umi_tools dedup`。UMI 取 header 中按 `umi.separator` 分隔的最后一个字段，位置由 `umi.header_field` 指定（见下表） |
+
+| `umi.header_field` | UMI 位置 | 例子 |
+|---|---|---|
+| `name`（默认） | read 名末尾、空格之前 | bcl-convert：`@A00:...:2000:ACGTACGT 1:N:0:ATCACG` |
+| `comment` | 空格后的注释末尾。比对软件会丢掉空格后的内容，所以比对前先把 read 名改写为 `@SRR123.1_ACGCAGGCCC` | SRA 下载的 DNBSEQ 数据：`@SRR123.1 V300...:2:CTCTCTAC:ACGCAGGCCC/1` |
+
+流程启动时会抽查每个 `umi: header` 样本的前 1000 条 reads，取出的 UMI 不是等长的 ACGTN 序列时直接报错，避免因位置设错而静默地不去重。
 
 有 UMI 时，后续定量使用去重后的 `results/03_align/{sample}.dedup.bam`。
 
@@ -124,7 +131,11 @@ trim: {3prime: {clip_r1: 4, polyA: true}}
 
 # TruSeq Stranded mRNA，UMI 已由 bcl-convert 写入 read 名
 library: {strandedness: reverse, protocol: full_length, umi: header}
-umi: {separator: ":"}
+umi: {header_field: name, separator: ":"}
+
+# SRA 下载的 DNBSEQ 数据，UMI 在 header 空格后的注释末尾
+library: {umi: header}
+umi: {header_field: comment, separator: ":"}
 ```
 
 ---

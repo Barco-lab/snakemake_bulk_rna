@@ -20,14 +20,18 @@ library:
                          #   reverse: read1 与转录本反向（-s 2，dUTP / Illumina TruSeq Stranded，最常见）
                          #   auto   : 比对后自动推断，结果见 results/tables/strandedness.tsv
   protocol: full_length  # full_length | 3prime（3' 端测序只输出 counts/CPM，不算 TPM/FPKM）
-  umi: none              # none | read（UMI 在 read 序列中）| header（UMI 已在 read 名中）
+  umi: none              # none | read（UMI 在 read 序列中）| header（UMI 已在 fastq 的 header 中）
 
 umi:
   # umi: read —— 比对前用 umi_tools extract 从序列中提取
   extract_method: string # string | regex
   pattern: NNNNNNNN      # read1 的 UMI pattern（string 模式下 N=UMI，X=保留的碱基）
   pattern2: ""           # PE 且 read2 也带 UMI 时填写
-  # umi: header —— read 名中 UMI 前的分隔符（bcl-convert/bcl2fastq 为 ":"）
+  # umi: header —— UMI 在 header 中的位置，取按 separator 分隔的最后一个字段
+  #   name   : 在 read 名末尾、空格之前，如 bcl-convert  @A00:...:2000:ACGTACGT 1:N:0:ATCACG
+  #   comment: 在空格后的注释末尾，如 SRA/DNBSEQ    @SRR123.1 V300...:2:CTCTCTAC:ACGCAGGCCC/1
+  #            比对前会把 read 名改写为 @SRR123.1_ACGCAGGCCC（比对软件会丢掉空格后的内容）
+  header_field: name     # name | comment
   separator: ":"
   dedup_extra: ""
   dedup_extra_pe: "--unpaired-reads=discard --chimeric-pairs=discard"
