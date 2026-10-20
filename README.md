@@ -10,7 +10,7 @@ bulk RNA-seq 本地分析流程（Snakemake ≥ 9.12）：
 <summary>文字版流程</summary>
 
 ```
-fastq ─► (UMI extract) ─► trim_galore ─► hisat2 ─► (UMI dedup) ─► 链方向检查 ─► featureCounts ─► counts / CPM / TPM / FPKM
+fastq ─► (UMI extract) ─► trim_galore ─► hisat2 ─► (UMI dedup) ─► 链方向检查 ─► featureCounts ─► counts / CPM（exon、exon+intron）/ TPM / FPKM
                  └─ FastQC (raw / trimmed)                     ├─► StringTie（可选）
                                                                ├─► repeat 计数（可选）
                                                                └─► bigwig
@@ -154,7 +154,7 @@ umi: {header_field: comment, separator: ":"}
 | 配置项 | 说明 |
 |---|---|
 | `genome` | `mm10` / `GRCm39` / `GRCh38`，对应 `references` 中的 hisat2 index 与 Ensembl GTF |
-| `gtf_filter.exclude_biotypes` | 定量前从 GTF 中去掉的基因类型，默认 `miRNA, snoRNA, snRNA`（与旧版 vM25 处理一致） |
+| `gtf_filter.exclude_biotypes` | 可选：定量前从 GTF 中去掉的基因类型。默认 `[]` 不过滤；如需与旧版 vM25 处理一致，设为 `[miRNA, snoRNA, snRNA]` |
 | `threads` | 每类任务的线程数；总核数由 `run.sh -j` 控制，Snakemake 会自动安排并行 |
 | `stringtie.enabled` | 额外输出 StringTie TPM/FPKM |
 | `repeats.enabled` / `repeats.gtf` | repeat 计数（需自备 RepeatMasker GTF，染色体命名需与 hisat2 index 一致，mm10 index 为 `1, 2, …, MT`）。打开但 gtf 为空或不存在时，流程启动即报错 |
