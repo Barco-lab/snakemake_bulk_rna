@@ -69,7 +69,7 @@ references:
     gtf: /data/genome/release-100/Homo_sapiens.GRCh38.100.gtf
 
 gtf_filter:
-  exclude_biotypes: [miRNA, snoRNA, snRNA]   # 定量前从 GTF 中去掉；[] 表示不过滤
+  exclude_biotypes: [] # [miRNA, snoRNA, snRNA]   # 定量前从 GTF 中去掉；[] 表示不过滤
 
 # ---------------------------------------------------------------------
 # 各步骤参数
@@ -103,7 +103,7 @@ repeats:
 
 bigwig:
   enabled: true
-  params: "--binSize 50 --normalizeUsing CPM"
+  params: "--binSize 100 --normalizeUsing CPM"
   split_strand: false    # true 时额外输出转录本正/负链 bigwig（.fwd.bw / .rev.bw）
 
 keep:
