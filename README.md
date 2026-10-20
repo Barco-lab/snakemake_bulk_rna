@@ -2,6 +2,13 @@
 
 bulk RNA-seq 本地分析流程（Snakemake ≥ 9.12）：
 
+![workflow](docs/images/bulk_rna_workflow.svg)
+
+<sub>实线框为主流程，虚线框为可选或按样本条件执行的步骤，绿色为 QC，★ 为交付结果（路径相对 `results/`）。PNG 版本：`docs/images/bulk_rna_workflow.png`。</sub>
+
+<details>
+<summary>文字版流程</summary>
+
 ```
 fastq ─► (UMI extract) ─► trim_galore ─► hisat2 ─► (UMI dedup) ─► 链方向检查 ─► featureCounts ─► counts / CPM / TPM / FPKM
                  └─ FastQC (raw / trimmed)                     ├─► StringTie（可选）
@@ -9,6 +16,8 @@ fastq ─► (UMI extract) ─► trim_galore ─► hisat2 ─► (UMI dedup) �
                                                                └─► bigwig
                                           汇总：summary.tsv + MultiQC 报告
 ```
+
+</details>
 
 支持按样本设置 **SE/PE**（自动识别）、**链方向**（可自动推断）、**全长 / 3' 端**、**有无 UMI**。
 
