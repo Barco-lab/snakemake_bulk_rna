@@ -1,6 +1,6 @@
 title: "bulk RNA-seq"
 subtitle: "snakemake_bulk_rna"
-report_comment: "PE 样本的 reads 数按 read pairs 计。详细数值见 results/tables/summary.tsv。"
+report_comment: "Pipeline summary 表的 reads 按单条 read 计（PE 为 R1 + R2），rate 以 raw_reads 为分母；其余模块为各软件自身的统计口径。详细数值见 results/tables/summary.tsv。"
 
 module_order:
   - custom_content
