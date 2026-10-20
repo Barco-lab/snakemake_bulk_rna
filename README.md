@@ -197,7 +197,7 @@ project/
         ├── benchmarks.tsv             # 本次所有任务的耗时与内存（一张表）
         ├── snakemake.log              # snakemake 完整输出
         ├── config.yaml、samples.tsv   # 本次使用的配置与样本表
-        ├── pipeline.txt               # 流程路径、git 版本、运行命令
+        ├── pipeline.txt               # 流程路径、commit 版本、运行命令
         └── software_versions.tsv      # 各软件的版本与实际路径
 ```
 

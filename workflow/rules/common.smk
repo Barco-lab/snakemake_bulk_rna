@@ -244,6 +244,24 @@ def all_targets():
 # ============================================================
 # 运行记录：logs/run_<时间>/
 # ============================================================
+def pipeline_version(pipe):
+    """流程当前的 commit；直接读 .git，运行时不需要 git。"""
+    gd = pipe / ".git"
+    try:
+        head = (gd / "HEAD").read_text().strip()
+        if not head.startswith("ref: "):
+            return head
+        ref = head[5:]
+        if (gd / ref).exists():
+            return f"{(gd / ref).read_text().strip()} ({ref})"
+        for line in (gd / "packed-refs").read_text().splitlines():
+            if line.endswith(" " + ref):
+                return f"{line.split()[0]} ({ref})"
+    except OSError:
+        pass
+    return "unknown"
+
+
 def record_run(version_args):
     """onstart 调用：保存本次运行的配置、样本表、流程版本与软件版本。"""
     d = Path(RUN_DIR)
@@ -252,12 +270,8 @@ def record_run(version_args):
         yaml.safe_dump(dict(config), f, allow_unicode=True, sort_keys=False)
     shutil.copy(config["samples"], d / "samples.tsv")
     pipe = Path(workflow.basedir).parent
-    git = subprocess.run(
-        ["git", "-C", str(pipe), "describe", "--always", "--dirty"],
-        capture_output=True, text=True,
-    ).stdout.strip()
     (d / "pipeline.txt").write_text(
-        f"pipeline: {pipe}\nversion:  {git or 'unknown'}\ncommand:  {' '.join(sys.argv)}\n"
+        f"pipeline: {pipe}\nversion:  {pipeline_version(pipe)}\ncommand:  {' '.join(sys.argv)}\n"
     )
     with open(d / "software_versions.tsv", "w") as f:
         subprocess.run(
