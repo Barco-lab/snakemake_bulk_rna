@@ -9,6 +9,7 @@
   umi_dedup_rate       umi_dedup_reads / raw_reads
   umi_duplicates_rate  (去重前比对上的 reads - umi_dedup_reads) / raw_reads
   assigned_rate        featureCounts Assigned / raw_reads（PE 的 fragment 数 x 2）
+  intron_rate          内含子 reads / raw_reads（未分配给 exon、按基因全长计入的 reads；核 RNA 明显偏高）
 summary.tsv 的 reads 数带千位分隔符，MultiQC 用的表保持纯数字。
 """
 import re
@@ -63,6 +64,7 @@ for i, sample in enumerate(snakemake.params.samples):
     clean = clean * div if clean is not None else None
     mapped = round(clean * rate / 100) if clean is not None and rate is not None else None
     assigned = parse_fc_summary(snakemake.input.counts[i] + ".summary") * div
+    intron = parse_fc_summary(snakemake.input.intron[i] + ".summary") * div
 
     row = {
         "sample": sample,
@@ -82,6 +84,7 @@ for i, sample in enumerate(snakemake.params.samples):
         "umi_dedup_rate (%)": None,
         "umi_duplicates_rate (%)": None,
         "assigned_rate (%)": pct(assigned, raw),
+        "intron_rate (%)": pct(intron, raw),
     }
     if meta["umi"] != "none":
         n_in, n_out = (n * div for n in parse_umi(umi_counts[sample]))

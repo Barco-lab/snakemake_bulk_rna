@@ -226,14 +226,16 @@ def all_targets():
             if config["bigwig"]["split_strand"]:
                 t += [f"results/07_bigwig/{s}.fwd.bw", f"results/07_bigwig/{s}.rev.bw"]
     t += [
-        "results/tables/counts.tsv",
-        "results/tables/cpm.tsv",
+        "results/tables/counts_exon.tsv",
+        "results/tables/cpm_exon.tsv",
+        "results/tables/counts_exon_intron.tsv",
+        "results/tables/cpm_exon_intron.tsv",
         "results/tables/strandedness.tsv",
         "results/tables/summary.tsv",
         "results/qc/multiqc/multiqc_report.html",
     ]
     if samples_with("protocol", "full_length"):
-        t += ["results/tables/tpm.tsv", "results/tables/fpkm.tsv"]
+        t += ["results/tables/tpm_exon.tsv", "results/tables/fpkm_exon.tsv"]
         if config["stringtie"]["enabled"]:
             t += ["results/tables/stringtie_tpm.tsv", "results/tables/stringtie_fpkm.tsv"]
     if config["repeats"]["enabled"]:

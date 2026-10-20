@@ -17,6 +17,7 @@ rule summary:
         trim=[trim_report(s, r) for s in SAMPLES for r in reads_of(s)],
         hisat2=expand("results/qc/hisat2/{sample}.summary.txt", sample=SAMPLES),
         counts=expand("results/04_count/{sample}.featureCounts.txt", sample=SAMPLES),
+        intron=expand("results/04_count/{sample}.intron.featureCounts.txt", sample=SAMPLES),
         strand=expand("results/04_count/strand/{sample}.tsv", sample=SAMPLES),
         umi=expand("results/qc/umi/{sample}.read_counts.tsv", sample=samples_with("umi", "read", "header")),
     output:

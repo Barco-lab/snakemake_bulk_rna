@@ -173,9 +173,11 @@ project/
 ├── samples.tsv                       # 本项目的样本表
 ├── results/
 │   ├── tables/                        # ★ 最终交付
-│   │   ├── counts.tsv                 # gene_id, gene_name, gene_biotype, length, 各样本 counts
-│   │   ├── cpm.tsv
-│   │   ├── tpm.tsv / fpkm.tsv         # 仅 full_length 样本
+│   │   ├── counts_exon.tsv            # gene_id, gene_name, gene_biotype, length, 各样本 counts（只计 exon）
+│   │   ├── cpm_exon.tsv
+│   │   ├── counts_exon_intron.tsv     # exon + intron 计数（核 RNA 用）；length 为基因全长
+│   │   ├── cpm_exon_intron.tsv
+│   │   ├── tpm_exon.tsv / fpkm_exon.tsv   # 仅 full_length 样本，按 exon 长度
 │   │   ├── stringtie_tpm.tsv / stringtie_fpkm.tsv   # 可选
 │   │   ├── repeats_counts.tsv         # 可选
 │   │   ├── strandedness.tsv           # 链方向推断
@@ -201,6 +203,15 @@ project/
         └── software_versions.tsv      # 各软件的版本与实际路径
 ```
 
+**核 RNA（nuclear RNA-seq）**：比对不变，所有样本同时输出两套计数，按数据类型选用：
+
+- `counts_exon.tsv` / `cpm_exon.tsv`：featureCounts `-t exon -g gene_id`，全细胞 RNA 使用。
+- `counts_exon_intron.tsv` / `cpm_exon_intron.tsv`：参考 zUMIs，exon 优先。先按 exon 计数，未分配给 exon 的 reads
+  再按基因全长（`-t gene`）计数并加到 exon 计数上，一条 read 只算一次。核 RNA 含大量未剪接的 pre-mRNA，使用这一套。
+- 两个基因重叠区域（嵌套基因、反义基因）的 reads 会被判为 ambiguous，不计入任何基因，与 exon 计数的规则一致。
+- 内含子计数依赖链方向；非链特异的数据中，重叠基因的内含子 reads 损失会更多。
+- TPM / FPKM 只按 exon 计算。
+
 **summary.tsv 的各列**（reads 按单条 read 计，PE 为 R1 + R2；所有 rate 都以 `raw_reads` 为分母，单位 %；reads 数带千位分隔符）：
 
 | 列 | 含义 |
@@ -213,6 +224,7 @@ project/
 | `mapping_rate (%)` | mapped_reads / raw_reads（与 hisat2 日志中以 clean 为分母的比对率不同） |
 | `umi_dedup_rate (%)` / `umi_duplicates_rate (%)` | 去重后 reads / raw_reads；(去重前比对上的 reads − 去重后) / raw_reads（仅 UMI 样本） |
 | `assigned_rate (%)` | featureCounts 计入基因的 reads / raw_reads（PE 的片段数 × 2） |
+| `intron_rate (%)` | 内含子 reads / raw_reads（见下方"核 RNA"）。全细胞 RNA 通常较低，核 RNA 明显更高 |
 | `strand_*` | 链方向：填写值、推断值、实际使用值、状态 |
 
 ---
