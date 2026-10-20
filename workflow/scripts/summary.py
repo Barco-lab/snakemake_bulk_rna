@@ -1,12 +1,15 @@
 """
-每个样本一行的汇总表。reads 数按"片段"计：PE 为 read pairs，SE 为 reads，比对率分子分母口径一致。
-  raw_reads      trim 前（trim_galore 报告 Total reads processed）
-  clean_reads    进入 hisat2 的 reads（trim / polyA 切除之后）
-  mapping_rate   hisat2 overall alignment rate
-  unique_rate    唯一比对（PE 为 concordantly exactly 1 time）
-  umi_dedup_*    UMI 去重（仅 umi != none）：按 read 名计数（PE 为 pairs），多重比对的 read 只算一次
-                 umi_dup_rate = 1 - 去重后 reads / 去重前比对上的 reads
-  assigned_*     featureCounts Assigned
+每个样本一行的汇总表。reads 数按单条 read 计（PE 为 R1 + R2），所有 rate 都以 raw_reads 为分母（%）。
+  raw_reads            trim 前（trim_galore 报告 Total reads processed，PE 两个报告相加）
+  clean_reads          进入 hisat2 的 reads（trim / polyA 切除之后）
+  mapped_reads         clean_reads x hisat2 overall alignment rate
+  umi_dedup_reads      UMI 去重后的 reads（仅 umi != none；按 read 名计数，多重比对的 read 只算一次）
+  clean_rate           clean_reads / raw_reads
+  mapping_rate         mapped_reads / raw_reads
+  umi_dedup_rate       umi_dedup_reads / raw_reads
+  umi_duplicates_rate  (去重前比对上的 reads - umi_dedup_reads) / raw_reads
+  assigned_rate        featureCounts Assigned / raw_reads（PE 的 fragment 数 x 2）
+summary.tsv 的 reads 数带千位分隔符，MultiQC 用的表保持纯数字。
 """
 import re
 import sys
@@ -27,14 +30,15 @@ def parse_trim(path):
 
 
 def parse_hisat2(path):
-    """hisat2 --new-summary 格式。"""
+    """hisat2 --new-summary 格式；PE 的 Total 为 pairs，overall rate 按单条 read 计。"""
     t = Path(path).read_text()
     total = grab(r"Total (?:pairs|reads): (\d+)", t)
     rate = grab(r"Overall alignment rate: ([\d.]+)%", t, float)
-    uniq = grab(r"Aligned concordantly 1 time: (\d+)", t)
-    if uniq is None:
-        uniq = grab(r"Aligned 1 time: (\d+)", t)
-    return total, rate, uniq
+    return total, rate
+
+
+def pct(n, total):
+    return 100 * n / total if n is not None and total else None
 
 
 def parse_umi(path):
@@ -45,17 +49,20 @@ def parse_umi(path):
 def parse_fc_summary(path):
     df = pd.read_csv(path, sep="\t", index_col=0)
     col = df.iloc[:, 0]
-    return int(col.get("Assigned", 0)), int(col.sum())
+    return int(col.get("Assigned", 0))
 
 
 rows = []
 umi_counts = {Path(p).name.removesuffix(".read_counts.tsv"): p for p in snakemake.input.umi}
 for i, sample in enumerate(snakemake.params.samples):
     meta = snakemake.params.meta[sample]
+    div = 2 if meta["layout"] == "PE" else 1
     strand = pd.read_csv(snakemake.input.strand[i], sep="\t").iloc[0]
-    raw = parse_trim(snakemake.input.trim[i])
-    clean, rate, uniq = parse_hisat2(snakemake.input.hisat2[i])
-    assigned, fc_total = parse_fc_summary(snakemake.input.counts[i] + ".summary")
+    raw = sum(parse_trim(fp) for fp in snakemake.params.trim[sample])
+    clean, rate = parse_hisat2(snakemake.input.hisat2[i])
+    clean = clean * div if clean is not None else None
+    mapped = round(clean * rate / 100) if clean is not None and rate is not None else None
+    assigned = parse_fc_summary(snakemake.input.counts[i] + ".summary") * div
 
     row = {
         "sample": sample,
@@ -68,18 +75,19 @@ for i, sample in enumerate(snakemake.params.samples):
         "strand_status": strand["status"],
         "raw_reads": raw,
         "clean_reads": clean,
-        "clean_ratio": clean / raw if raw and clean is not None else None,
-        "mapping_rate": rate / 100 if rate is not None else None,
-        "unique_rate": uniq / clean if clean and uniq is not None else None,
+        "mapped_reads": mapped,
         "umi_dedup_reads": None,
-        "umi_dup_rate": None,
-        "assigned": assigned,
-        "assigned_rate": assigned / fc_total if fc_total else None,
+        "clean_rate (%)": pct(clean, raw),
+        "mapping_rate (%)": pct(mapped, raw),
+        "umi_dedup_rate (%)": None,
+        "umi_duplicates_rate (%)": None,
+        "assigned_rate (%)": pct(assigned, raw),
     }
     if meta["umi"] != "none":
-        n_in, n_out = parse_umi(umi_counts[sample])
+        n_in, n_out = (n * div for n in parse_umi(umi_counts[sample]))
         row["umi_dedup_reads"] = n_out
-        row["umi_dup_rate"] = 1 - n_out / n_in if n_in else None
+        row["umi_dedup_rate (%)"] = pct(n_out, raw)
+        row["umi_duplicates_rate (%)"] = pct(n_in - n_out, raw)
     for k, v in row.items():
         if v is None and not k.startswith("umi_"):
             print(f"WARNING: {sample} 未能解析 {k}", file=sys.stderr)
@@ -87,17 +95,22 @@ for i, sample in enumerate(snakemake.params.samples):
 
 df = pd.DataFrame(rows)
 if (df["umi"] == "none").all():
-    df = df.drop(columns=["umi_dedup_reads", "umi_dup_rate"])
+    df = df.drop(columns=[c for c in df.columns if c.startswith("umi_")])
+count_cols = [c for c in df.columns if c.endswith("_reads")]
 for c in df.columns:
-    if c.endswith(("_rate", "_ratio")):
-        df[c] = df[c].astype(float).round(4)
-    elif c.endswith(("_reads", "assigned")):
+    if c.endswith("(%)"):
+        df[c] = df[c].astype(float).round(2)
+    elif c in count_cols:
         df[c] = df[c].astype("Int64")
-df.to_csv(snakemake.output.tsv, sep="\t", index=False)
+
+out = df.copy()
+for c in count_cols:
+    out[c] = out[c].map(lambda v: "" if pd.isna(v) else f"{int(v):,}")
+out.to_csv(snakemake.output.tsv, sep="\t", index=False)
 
 # MultiQC 自定义表格
 with open(snakemake.output.mqc, "w") as f:
     f.write("# id: 'pipeline_summary'\n# section_name: 'Pipeline summary'\n"
-            "# description: 'results/tables/summary.tsv（PE 按 read pairs 计）'\n"
+            "# description: 'results/tables/summary.tsv（reads 按单条计，rate 以 raw_reads 为分母）'\n"
             "# plot_type: 'table'\n")
     df.to_csv(f, sep="\t", index=False)

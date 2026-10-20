@@ -8,9 +8,13 @@ def trim_reports(sample):
     ]
 
 
+def trim_report(s, r):
+    return f"results/02_trim/reports/{s}_{r}.fastq.gz_trimming_report.txt"
+
+
 rule summary:
     input:
-        trim=[f"results/02_trim/reports/{s}_R1.fastq.gz_trimming_report.txt" for s in SAMPLES],
+        trim=[trim_report(s, r) for s in SAMPLES for r in reads_of(s)],
         hisat2=expand("results/qc/hisat2/{sample}.summary.txt", sample=SAMPLES),
         counts=expand("results/04_count/{sample}.featureCounts.txt", sample=SAMPLES),
         strand=expand("results/04_count/strand/{sample}.tsv", sample=SAMPLES),
@@ -23,6 +27,7 @@ rule summary:
         meta=SAMPLES_DF[["sample", "protocol", "umi"]]
         .assign(layout=["PE" if is_pe(s) else "SE" for s in SAMPLES])
         .to_dict("index"),
+        trim={s: [trim_report(s, r) for r in reads_of(s)] for s in SAMPLES},
     log:
         "<logs>/summary.log",
     script:

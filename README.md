@@ -201,17 +201,18 @@ project/
         └── software_versions.tsv      # 各软件的版本与实际路径
 ```
 
-**summary.tsv 的各列**（PE 样本按 read pairs 计）：
+**summary.tsv 的各列**（reads 按单条 read 计，PE 为 R1 + R2；所有 rate 都以 `raw_reads` 为分母，单位 %；reads 数带千位分隔符）：
 
 | 列 | 含义 |
 |---|---|
 | `raw_reads` | trim 前的 reads |
 | `clean_reads` | 进入 hisat2 的 reads |
-| `clean_ratio` | clean / raw |
-| `mapping_rate` | hisat2 overall alignment rate |
-| `unique_rate` | 唯一比对（PE 为 concordant 唯一比对）/ clean |
-| `umi_dedup_reads` / `umi_dup_rate` | UMI 去重后的 reads 与重复率（仅 UMI 样本）。按 read 名计数，多重比对的 read 只算一次；重复率 = 1 − 去重后 / 去重前比对上的 reads。MultiQC 的 UMI-tools 部分是 umi_tools 自己按比对记录计的，数值会偏大，以本表为准 |
-| `assigned` / `assigned_rate` | featureCounts 计入基因的片段数与比例 |
+| `mapped_reads` | 比对上的 reads（clean_reads × hisat2 overall alignment rate） |
+| `umi_dedup_reads` | UMI 去重后的 reads（仅 UMI 样本）。按 read 名计数，多重比对的 read 只算一次。MultiQC 的 UMI-tools 部分是 umi_tools 自己按比对记录计的，数值会偏大，以本表为准 |
+| `clean_rate (%)` | clean_reads / raw_reads |
+| `mapping_rate (%)` | mapped_reads / raw_reads（与 hisat2 日志中以 clean 为分母的比对率不同） |
+| `umi_dedup_rate (%)` / `umi_duplicates_rate (%)` | 去重后 reads / raw_reads；(去重前比对上的 reads − 去重后) / raw_reads（仅 UMI 样本） |
+| `assigned_rate (%)` | featureCounts 计入基因的 reads / raw_reads（PE 的片段数 × 2） |
 | `strand_*` | 链方向：填写值、推断值、实际使用值、状态 |
 
 ---
