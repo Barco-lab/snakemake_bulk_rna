@@ -1,0 +1,141 @@
+# QC 报告（results/qc/report.html）中各列的说明、参考值与检查规则，由 workflow/scripts/qc_report.py 读取。
+# 文字均为 {zh: 中文, en: English}，报告中可切换。
+#
+# metrics: summary.tsv 的列（不含括号部分）
+#   desc     含义与计算方式（鼠标停在表头上显示）
+#   ref      参考值
+#   sources  出处，对应下方 sources 的键
+#   outlier  true 时与本批样本比较：|值 - 中位数| > 3 x MAD（MAD x 1.4826 换算为标准差尺度）标为橙色
+#   checks   有公开阈值的检查。when 限定样本（按 summary.tsv 的列取值），expr 为 Python 表达式，
+#            可直接使用各列名（不含括号部分）；level 为 warn（橙）或 fail（红）
+# rate 以进入该步骤的 reads 为分母（%，见 summary.tsv 表头括号），与各软件报告和公开参考值口径一致。
+
+metrics:
+  layout:
+    desc: {zh: SE 单端 / PE 双端, en: SE single-end / PE paired-end}
+  protocol:
+    desc: {zh: full_length 全长 / 3prime 3' 端测序, en: full_length full-length / 3prime 3'-end sequencing}
+  umi:
+    desc:
+      zh: UMI 位置：none（无）/ read（在序列中）/ header（在 fastq header 中）
+      en: "UMI location: none / read (in the read sequence) / header (in the fastq header)"
+  strand_provided:
+    desc: {zh: 样本表或 config 中填写的链方向, en: Strandedness given in the sample sheet or config}
+  strand_inferred:
+    desc:
+      zh: featureCounts 分别以 -s 1 / -s 2 计数，按 forward 比例推断的链方向
+      en: Strandedness inferred from the forward fraction of featureCounts -s 1 / -s 2 assignments
+  strand_used:
+    desc: {zh: 实际使用的链方向（填写 auto 时为推断值）, en: Strandedness actually used (the inferred value when auto)}
+  strand_status:
+    desc: {zh: 填写值与推断值是否一致, en: Whether the given and inferred strandedness agree}
+    ref:
+      zh: ok / auto；forward 比例 ≥ strand_check.threshold 判为 forward，≤ 1 − threshold 判为 reverse，其余为 undetermined
+      en: ok / auto; forward fraction ≥ strand_check.threshold → forward, ≤ 1 − threshold → reverse, otherwise undetermined
+    checks:
+      - expr: strand_status == "MISMATCH"
+        level: fail
+        message: {zh: 推断的链方向与填写值不一致, en: inferred strandedness contradicts the given value}
+      - expr: strand_status in ("undetermined", "auto_undetermined")
+        level: warn
+        message: {zh: 无法推断链方向, en: strandedness could not be inferred}
+  raw_reads:
+    desc:
+      zh: trim 前的 reads（trim_galore 报告的 Total reads processed，PE 两个报告相加）
+      en: Reads before trimming (trim_galore "Total reads processed"; R1 + R2 for PE)
+    ref:
+      zh: 3' 端测序（QuantSeq）3–5M reads，检测低丰度基因时 5–10M；full_length 见 mapped_reads
+      en: 3'-end (QuantSeq) 3–5M reads, 5–10M for low-abundance genes; full_length see mapped_reads
+    sources: [Lexogen-depth]
+    checks:
+      - when: {protocol: 3prime}
+        expr: raw_reads < 3e6
+        level: warn
+        message: {zh: 低于 Lexogen 建议的 3M reads, en: below the 3M reads recommended by Lexogen}
+  clean_reads:
+    desc:
+      zh: 去接头、低质量和过短 reads（3' 端测序另切 5' 端和 polyA）后进入 hisat2 的 reads
+      en: Reads entering hisat2 after adapter / quality / length trimming (plus 5' clip and polyA for 3'-end)
+  mapped_reads:
+    desc: {zh: clean_reads × hisat2 overall alignment rate, en: clean_reads × hisat2 overall alignment rate}
+    ref:
+      zh: full_length 每个重复 ≥ 30M aligned reads（较早项目为 20M）
+      en: full_length ≥ 30M aligned reads per replicate (20M for older projects)
+    sources: [ENCODE]
+    checks:
+      - when: {protocol: full_length}
+        expr: mapped_reads < 20e6
+        level: fail
+        message: {zh: 低于 ENCODE 较早标准 20M aligned reads, en: below the older ENCODE standard of 20M aligned reads}
+      - when: {protocol: full_length}
+        expr: 20e6 <= mapped_reads < 30e6
+        level: warn
+        message: {zh: 低于 ENCODE 30M aligned reads, en: below the ENCODE standard of 30M aligned reads}
+  umi_dedup_reads:
+    desc:
+      zh: UMI 去重后的 reads（按 read 名计数，多重比对的 read 只算一次），即独立分子数
+      en: Reads after UMI deduplication (counted by read name), i.e. unique molecules
+  clean_rate:
+    desc: {zh: clean_reads / raw_reads（trim 后保留的比例）, en: clean_reads / raw_reads (fraction kept after trimming)}
+    ref:
+      zh: 无统一标准；明显偏低多为接头二聚体或插入片段过短
+      en: No consensus threshold; low values usually mean adapter dimers or short inserts
+    outlier: true
+  mapping_rate:
+    desc:
+      zh: mapped_reads / clean_reads，即 hisat2 overall alignment rate
+      en: mapped_reads / clean_reads, i.e. the hisat2 overall alignment rate
+    ref:
+      zh: 常规 RNA-seq 在人类基因组上预期 70–90%
+      en: 70–90% of regular RNA-seq reads expected to map to the human genome
+    sources: [Conesa2016]
+    outlier: true
+    checks:
+      - expr: mapping_rate < 70
+        level: warn
+        message: {zh: 比对率低于 70%, en: mapping rate below 70%}
+  umi_dedup_rate:
+    desc:
+      zh: umi_dedup_reads / 去重前比对上的 reads（umi_tools dedup 的 reads out / reads in）
+      en: umi_dedup_reads / mapped reads before dedup (umi_tools dedup reads out / reads in)
+    ref: {zh: 无统一标准，与同批样本比较, en: No consensus threshold; compare within the batch}
+    outlier: true
+  umi_duplicates_rate:
+    desc:
+      zh: (去重前比对上的 reads − umi_dedup_reads) / 去重前比对上的 reads，即 100 − umi_dedup_rate
+      en: (mapped reads before dedup − umi_dedup_reads) / mapped reads before dedup, i.e. 100 − umi_dedup_rate
+    ref:
+      zh: 无统一标准，随起始量和测序深度升高；偏高提示文库复杂度低或测序过饱和
+      en: No consensus threshold; rises with low input and deep sequencing; high values suggest low complexity or saturation
+    outlier: true
+  assigned_rate:
+    desc:
+      zh: featureCounts 计入基因 exon 的 reads / 进入 featureCounts 的 reads（UMI 样本为去重后，其余为 mapped；PE 为片段数 × 2），与 MultiQC 的 % Assigned 口径相同
+      en: Reads assigned to exons / reads entering featureCounts (UMI-deduplicated or mapped; fragments × 2 for PE), as MultiQC % Assigned
+    ref:
+      zh: 无统一标准，与同批样本比较；偏低多为链方向设错或内含子 / 基因间 reads 多
+      en: No consensus threshold; low values suggest wrong strandedness or many intronic / intergenic reads
+    outlier: true
+  intron_rate:
+    desc:
+      zh: 未分配给 exon、按基因全长计入的 reads / 进入 featureCounts 的 reads（exon 优先）
+      en: Reads not assigned to exons but within gene bodies / reads entering featureCounts (exon first)
+    ref:
+      zh: polyA 文库通常较低，核 RNA、总 RNA 和血液样本更高；本应较低时偏高提示基因组 DNA 污染
+      en: Usually low for polyA libraries, higher for nuclear / total RNA and blood; unexpectedly high suggests gDNA contamination
+    sources: [Lexogen-lexicon]
+    outlier: true
+
+sources:
+  ENCODE:
+    name: ENCODE bulk long RNA-seq data standards
+    url: https://www.encodeproject.org/data-standards/rna-seq/long-rnas/
+  Conesa2016:
+    name: Conesa A, et al. A survey of best practices for RNA-seq data analysis. Genome Biol 17, 13 (2016)
+    url: https://doi.org/10.1186/s13059-016-0881-8
+  Lexogen-depth:
+    name: "Lexogen FAQ: QuantSeq sequencing read length and depth"
+    url: https://faqs.lexogen.com/faq/what-sequencing-read-length-and-read-depth-are-rec
+  Lexogen-lexicon:
+    name: "Lexogen RNA Lexicon: data analysis and quality control"
+    url: https://www.lexogen.com/rna-lexicon-data-analysis-and-quality-control-tertiary-analysis/

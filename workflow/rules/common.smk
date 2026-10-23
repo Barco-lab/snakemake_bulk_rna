@@ -231,8 +231,9 @@ def all_targets():
         "results/tables/counts_exon_intron.tsv",
         "results/tables/cpm_exon_intron.tsv",
         "results/tables/strandedness.tsv",
-        "results/tables/summary.tsv",
+        "results/qc/summary.tsv",
         "results/qc/multiqc/multiqc_report.html",
+        "results/qc/report.html",
     ]
     if samples_with("protocol", "full_length"):
         t += ["results/tables/tpm_exon.tsv", "results/tables/fpkm_exon.tsv"]

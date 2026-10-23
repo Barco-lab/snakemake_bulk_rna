@@ -103,7 +103,7 @@ repeats:
 
 bigwig:
   enabled: true
-  params: "--binSize 100 --normalizeUsing CPM"
+  params: "--binSize 10 --normalizeUsing CPM"
   split_strand: false    # true 时额外输出转录本正/负链 bigwig（.fwd.bw / .rev.bw）
 
 keep:

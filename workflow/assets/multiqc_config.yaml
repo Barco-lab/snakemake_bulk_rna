@@ -1,6 +1,17 @@
 title: "bulk RNA-seq"
 subtitle: "snakemake_bulk_rna"
-report_comment: "Pipeline summary 表的 reads 按单条 read 计（PE 为 R1 + R2），rate 以 raw_reads 为分母；其余模块为各软件自身的统计口径。详细数值见 results/tables/summary.tsv。"
+report_comment: "Pipeline summary 表的 reads 按单条 read 计（PE 为 R1 + R2），rate 以进入该步骤的 reads 为分母（见表头括号），与各软件模块口径一致。详细数值与各列说明见 results/qc/summary.tsv 与 results/qc/report.html。"
+
+# results/qc/summary.tsv 作为自定义表格
+custom_data:
+  pipeline_summary:
+    file_format: "tsv"
+    section_name: "Pipeline summary"
+    description: "results/qc/summary.tsv（reads 按单条计，rate 以进入该步骤的 reads 为分母）"
+    plot_type: "table"
+sp:
+  pipeline_summary:
+    fn: "summary.tsv"
 
 module_order:
   - custom_content

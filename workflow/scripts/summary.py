@@ -1,24 +1,15 @@
 """
-每个样本一行的汇总表。reads 数按单条 read 计（PE 为 R1 + R2），所有 rate 都以 raw_reads 为分母（%）。
-  raw_reads            trim 前（trim_galore 报告 Total reads processed，PE 两个报告相加）
-  clean_reads          进入 hisat2 的 reads（trim / polyA 切除之后）
-  mapped_reads         clean_reads x hisat2 overall alignment rate
-  umi_dedup_reads      UMI 去重后的 reads（仅 umi != none；按 read 名计数，多重比对的 read 只算一次）
-  clean_rate           clean_reads / raw_reads
-  mapping_rate         mapped_reads / raw_reads
-  umi_dedup_rate       umi_dedup_reads / raw_reads
-  umi_duplicates_rate  (去重前比对上的 reads - umi_dedup_reads) / raw_reads
-  assigned_rate        featureCounts Assigned / raw_reads（PE 的 fragment 数 x 2）
-  intron_rate          内含子 reads / raw_reads（未分配给 exon、按基因全长计入的 reads；核 RNA 明显偏高）
-summary.tsv 的 reads 数带千位分隔符，MultiQC 用的表保持纯数字。
+每个样本一行的汇总表。reads 数按单条 read 计（PE 为 R1 + R2）。
+rate 以进入该步骤的 reads 为分母（与各软件报告、MultiQC 及公开参考值一致），分母写在表头中：
+  clean_rate 以 raw，mapping_rate 以 clean，UMI 去重以去重前比对上的 reads，
+  assigned / intron 以进入 featureCounts 的 reads（UMI 样本为去重后，其余为 mapped）为分母。
+输出纯数字，MultiQC 与 qc_report 读取；各列含义、参考值见 workflow/report/qc_metrics.yaml。
 """
 import re
 import sys
 from pathlib import Path
 
 import pandas as pd
-
-sys.stderr = open(snakemake.log[0], "w")
 
 
 def grab(pattern, text, cast=int, default=None):
@@ -79,18 +70,20 @@ for i, sample in enumerate(snakemake.params.samples):
         "clean_reads": clean,
         "mapped_reads": mapped,
         "umi_dedup_reads": None,
-        "clean_rate (%)": pct(clean, raw),
-        "mapping_rate (%)": pct(mapped, raw),
-        "umi_dedup_rate (%)": None,
-        "umi_duplicates_rate (%)": None,
-        "assigned_rate (%)": pct(assigned, raw),
-        "intron_rate (%)": pct(intron, raw),
+        "clean_rate (% of raw)": pct(clean, raw),
+        "mapping_rate (% of clean)": pct(mapped, clean),
+        "umi_dedup_rate (% of mapped)": None,
+        "umi_duplicates_rate (% of mapped)": None,
     }
+    counted = mapped  # 进入 featureCounts 的 reads
     if meta["umi"] != "none":
         n_in, n_out = (n * div for n in parse_umi(umi_counts[sample]))
         row["umi_dedup_reads"] = n_out
-        row["umi_dedup_rate (%)"] = pct(n_out, raw)
-        row["umi_duplicates_rate (%)"] = pct(n_in - n_out, raw)
+        row["umi_dedup_rate (% of mapped)"] = pct(n_out, n_in)
+        row["umi_duplicates_rate (% of mapped)"] = pct(n_in - n_out, n_in)
+        counted = n_out
+    row["assigned_rate (% of counted)"] = pct(assigned, counted)
+    row["intron_rate (% of counted)"] = pct(intron, counted)
     for k, v in row.items():
         if v is None and not k.startswith("umi_"):
             print(f"WARNING: {sample} 未能解析 {k}", file=sys.stderr)
@@ -101,19 +94,9 @@ if (df["umi"] == "none").all():
     df = df.drop(columns=[c for c in df.columns if c.startswith("umi_")])
 count_cols = [c for c in df.columns if c.endswith("_reads")]
 for c in df.columns:
-    if c.endswith("(%)"):
+    if "(%" in c:
         df[c] = df[c].astype(float).round(2)
     elif c in count_cols:
         df[c] = df[c].astype("Int64")
 
-out = df.copy()
-for c in count_cols:
-    out[c] = out[c].map(lambda v: "" if pd.isna(v) else f"{int(v):,}")
-out.to_csv(snakemake.output.tsv, sep="\t", index=False)
-
-# MultiQC 自定义表格
-with open(snakemake.output.mqc, "w") as f:
-    f.write("# id: 'pipeline_summary'\n# section_name: 'Pipeline summary'\n"
-            "# description: 'results/tables/summary.tsv（reads 按单条计，rate 以 raw_reads 为分母）'\n"
-            "# plot_type: 'table'\n")
-    df.to_csv(f, sep="\t", index=False)
+df.to_csv(snakemake.output[0], sep="\t", index=False)

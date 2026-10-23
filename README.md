@@ -1,5 +1,7 @@
 # snakemake_bulk_rna
 
+**中文** | [English](README.en.md)
+
 bulk RNA-seq 本地分析流程（Snakemake ≥ 9.12）：
 
 ![workflow](docs/images/bulk_rna_workflow.svg)
@@ -14,7 +16,7 @@ fastq ─► (UMI extract) ─► trim_galore ─► hisat2 ─► (UMI dedup) �
                  └─ FastQC (raw / trimmed)                     ├─► StringTie（可选）
                                                                ├─► repeat 计数（可选）
                                                                └─► bigwig
-                                          汇总：summary.tsv + MultiQC 报告
+                                          汇总：summary.tsv + QC 报告 + MultiQC
 ```
 
 </details>
@@ -180,14 +182,15 @@ project/
 │   │   ├── tpm_exon.tsv / fpkm_exon.tsv   # 仅 full_length 样本，按 exon 长度
 │   │   ├── stringtie_tpm.tsv / stringtie_fpkm.tsv   # 可选
 │   │   ├── repeats_counts.tsv         # 可选
-│   │   ├── strandedness.tsv           # 链方向推断
-│   │   └── summary.tsv                # 每个样本的 reads 数、比对率、assigned 率等
+│   │   └── strandedness.tsv           # 链方向推断
 │   ├── 00_raw/                        # 原始 fastq 的软链接（统一命名为 {sample}_R1/R2）
 │   ├── 02_trim/reports/               # trim_galore 报告
 │   ├── 03_align/                      # {sample}.bam（+ .dedup.bam）
 │   ├── 04_count/                      # 每个样本的 featureCounts 结果、strand/
 │   ├── 05_stringtie/  06_repeats/  07_bigwig/
 │   └── qc/
+│       ├── report.html                  # ★ QC 报告（单文件）：概览、流程与参数、QC 汇总表；指标说明与参考值见 workflow/report/qc_metrics.yaml
+│       ├── summary.tsv                  # 每个样本的 reads 数、比对率、assigned 率等（纯数字）
 │       ├── multiqc/multiqc_report.html  # ★ 所有 QC 汇总
 │       ├── fastqc_raw/  fastqc_trimmed/
 │       ├── hisat2/{sample}.summary.txt  # 比对统计
@@ -212,7 +215,7 @@ project/
 - 内含子计数依赖链方向；非链特异的数据中，重叠基因的内含子 reads 损失会更多。
 - TPM / FPKM 只按 exon 计算。
 
-**summary.tsv 的各列**（reads 按单条 read 计，PE 为 R1 + R2；所有 rate 都以 `raw_reads` 为分母，单位 %；reads 数带千位分隔符）：
+**summary.tsv 的各列**（reads 按单条 read 计，PE 为 R1 + R2；rate 以进入该步骤的 reads 为分母，单位 %，分母写在表头括号中，与各软件报告、MultiQC 和公开参考值口径一致；参考值见 `results/qc/report.html`）：
 
 | 列 | 含义 |
 |---|---|
@@ -220,11 +223,11 @@ project/
 | `clean_reads` | 进入 hisat2 的 reads |
 | `mapped_reads` | 比对上的 reads（clean_reads × hisat2 overall alignment rate） |
 | `umi_dedup_reads` | UMI 去重后的 reads（仅 UMI 样本）。按 read 名计数，多重比对的 read 只算一次。MultiQC 的 UMI-tools 部分是 umi_tools 自己按比对记录计的，数值会偏大，以本表为准 |
-| `clean_rate (%)` | clean_reads / raw_reads |
-| `mapping_rate (%)` | mapped_reads / raw_reads（与 hisat2 日志中以 clean 为分母的比对率不同） |
-| `umi_dedup_rate (%)` / `umi_duplicates_rate (%)` | 去重后 reads / raw_reads；(去重前比对上的 reads − 去重后) / raw_reads（仅 UMI 样本） |
-| `assigned_rate (%)` | featureCounts 计入基因的 reads / raw_reads（PE 的片段数 × 2） |
-| `intron_rate (%)` | 内含子 reads / raw_reads（见下方"核 RNA"）。全细胞 RNA 通常较低，核 RNA 明显更高 |
+| `clean_rate (% of raw)` | clean_reads / raw_reads |
+| `mapping_rate (% of clean)` | mapped_reads / clean_reads，即 hisat2 overall alignment rate |
+| `umi_dedup_rate (% of mapped)` / `umi_duplicates_rate (% of mapped)` | 去重后 reads / 去重前比对上的 reads；两者之和为 100（仅 UMI 样本） |
+| `assigned_rate (% of counted)` | featureCounts 计入基因的 reads / 进入 featureCounts 的 reads（UMI 样本为去重后，其余为 mapped；PE 的片段数 × 2） |
+| `intron_rate (% of counted)` | 内含子 reads / 进入 featureCounts 的 reads（见下方"核 RNA"）。全细胞 RNA 通常较低，核 RNA 明显更高 |
 | `strand_*` | 链方向：填写值、推断值、实际使用值、状态 |
 
 ---
@@ -265,4 +268,4 @@ bash $P/run.sh -c config.yaml -o rnaseq_out -n -- --summary
   - summary 读不到 snakemake 参数；
   - human/mm9 的 GTF 配置结构错误；
   - 线程数写死。
-- 新增：链方向推断、3' 端测序与 UMI 支持、统一的 MultiQC 报告、每次运行的记录 `logs/run_<时间>/`。
+- 新增：链方向推断、3' 端测序与 UMI 支持、统一的 MultiQC 报告、QC 报告、每次运行的记录 `logs/run_<时间>/`。
