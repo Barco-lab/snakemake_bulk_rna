@@ -307,12 +307,15 @@ for i, row in df.iterrows():
         data = "" if pd.isna(v) else str(v)
         cells.append(f'<td class="{" ".join(cls)}" data-v="{esc(data)}"{tip}>{esc(fmt(c, v))}</td>')
     body.append("<tr>" + "".join(cells) + "</tr>")
-table_html = f'<table class="qc" id="qc"><thead><tr>{head}</tr></thead><tbody>{"".join(body)}</tbody></table>'
+table_html = f'<table class="qc" id="qc" data-key="{esc(p.pipeline)}"><thead><tr>{head}</tr></thead><tbody>{"".join(body)}</tbody></table>'
 
 # ------------------------------------------------------------
 # 页面
 # ------------------------------------------------------------
 title_zh, title_en = p.title
+# 项目：输出目录（snakemake --directory，即当前目录）的上两级，如 Patri_aging/out_rna
+OUTDIR = Path.cwd()
+PROJECT = "/".join(OUTDIR.parts[-2:])
 CSS = """
 :root {
   --bg: #f5f5f7; --card: #ffffff; --text: #1d1d1f; --muted: #6e6e73; --line: #d2d2d7; --soft: #f5f5f7;
@@ -353,6 +356,8 @@ nav .ext { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line
 nav .ext a { display: block; padding: 6px 12px; font-size: 13px; }
 main { margin-left: 232px; padding: 40px 48px 80px; max-width: 1480px; }
 header.top h1 { font-size: 32px; font-weight: 700; letter-spacing: -.02em; margin: 0; }
+header.top .project { margin-top: 8px; font-size: 15px; font-weight: 600; }
+header.top .project .path { color: var(--muted); font-weight: 400; font-size: 13px; margin-left: 8px; overflow-wrap: anywhere; }
 header.top .meta { color: var(--muted); margin-top: 6px; font-size: 13px; }
 section { margin-top: 44px; }
 section > h2 { font-size: 24px; font-weight: 600; letter-spacing: -.015em; margin: 0 0 16px; }
@@ -382,6 +387,14 @@ table.kv tr + tr th, table.kv tr + tr td { border-top: 1px solid var(--line); }
 .bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .btn { border: 0; background: var(--accent); color: #fff; font: inherit; font-size: 13px; padding: 6px 14px; border-radius: 999px; cursor: pointer; white-space: nowrap; }
 .btn:hover { filter: brightness(1.08); }
+.tools { display: flex; gap: 8px; position: relative; }
+.btn.ghost { background: var(--soft); color: var(--text); border: 1px solid var(--line); }
+.colpick { display: none; position: absolute; right: 0; top: calc(100% + 6px); z-index: 10; background: var(--card);
+  border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); padding: 10px 14px;
+  max-height: 60vh; overflow: auto; min-width: 220px; font-size: 13px; }
+.colpick.open { display: block; }
+.colpick label { display: block; white-space: nowrap; padding: 2px 0; cursor: pointer; }
+.colpick .all { color: var(--accent); cursor: pointer; margin-bottom: 6px; display: inline-block; }
 .scroll { overflow: auto; max-height: 78vh; border-radius: 12px; border: 1px solid var(--line); }
 table.qc { font-size: 13px; font-variant-numeric: tabular-nums; }
 table.qc th {
@@ -441,11 +454,36 @@ document.querySelectorAll("table.qc th").forEach((th, idx) => th.addEventListene
   }).forEach(r => tbody.appendChild(r));
 }));
 
-// 复制表格：制表符分隔、纯数字，可直接粘贴到 Excel
+// 显示 / 隐藏列（sample 列始终显示；选择按流程记在浏览器中）
+(() => {
+  const t = document.getElementById("qc"), box = document.getElementById("colpick");
+  const key = "qc-cols-" + t.dataset.key;
+  const names = [...t.tHead.rows[0].cells].map(c => c.firstChild.textContent);
+  let hidden = new Set();
+  try { hidden = new Set(JSON.parse(localStorage.getItem(key) || "[]")); } catch (e) {}
+  const apply = () => {
+    [...t.rows].forEach(r => [...r.cells].forEach((c, i) => { c.hidden = i > 0 && hidden.has(names[i]); }));
+    box.querySelectorAll("input").forEach(x => { x.checked = !hidden.has(x.value); });
+    try { localStorage.setItem(key, JSON.stringify([...hidden])); } catch (e) {}
+  };
+  names.slice(1).forEach(n => {
+    const lab = document.createElement("label"), x = document.createElement("input");
+    x.type = "checkbox"; x.value = n;
+    x.addEventListener("change", () => { x.checked ? hidden.delete(n) : hidden.add(n); apply(); });
+    lab.append(x, " " + n); box.appendChild(lab);
+  });
+  box.querySelector(".all").addEventListener("click", () => { hidden.clear(); apply(); });
+  document.getElementById("cols").addEventListener("click", e => { e.stopPropagation(); box.classList.toggle("open"); });
+  box.addEventListener("click", e => e.stopPropagation());
+  document.addEventListener("click", () => box.classList.remove("open"));
+  apply();
+})();
+
+// 复制表格：制表符分隔、纯数字，可直接粘贴到 Excel（只复制显示的列）
 document.getElementById("copy").addEventListener("click", async e => {
   const t = document.getElementById("qc");
-  const rows = [[...t.tHead.rows[0].cells].map(c => c.textContent)];
-  [...t.tBodies[0].rows].forEach(r => rows.push([...r.cells].map(c => c.dataset.v)));
+  const rows = [[...t.tHead.rows[0].cells].filter(c => !c.hidden).map(c => c.textContent)];
+  [...t.tBodies[0].rows].forEach(r => rows.push([...r.cells].filter(c => !c.hidden).map(c => c.dataset.v)));
   const text = rows.map(r => r.join("\\t")).join("\\n");
   try { await navigator.clipboard.writeText(text); }
   catch (err) {
@@ -487,6 +525,7 @@ page = f"""<!doctype html>
 <main>
 <header class="top">
   <h1>{L(title_zh, title_en)}</h1>
+  <div class="project">{esc(PROJECT)}<span class="path">{esc(str(OUTDIR))}</span></div>
   <div class="meta">{esc(p.pipeline)} {esc(p.version)} · {L("生成于", "generated")} {datetime.now():%Y-%m-%d %H:%M} · {L(f"{n} 个样本", f"{n} samples")}</div>
 </header>
 
@@ -518,7 +557,11 @@ page = f"""<!doctype html>
                                     "Reads are single reads (R1 + R2 for PE); rates are % of the reads entering each step (see header). Click a header to sort; hover a header for its definition and reference, or a colored cell for the reason.")}
         <span class="sw" style="background:var(--orange-bg);border:1px solid var(--orange)"></span>{L("需注意", "review")}
         <span class="sw" style="background:var(--red-bg);border:1px solid var(--red)"></span>{L("低于公开标准", "below standard")}</div>
-      <button class="btn" id="copy"><span class="go">{L("复制表格", "Copy table")}</span><span class="ok">{L("已复制", "Copied")} ✓</span></button>
+      <div class="tools">
+        <button class="btn ghost" id="cols">{L("显示列", "Columns")} ▾</button>
+        <div class="colpick" id="colpick"><span class="all">{L("全部显示", "Show all")}</span></div>
+        <button class="btn" id="copy"><span class="go">{L("复制表格", "Copy table")}</span><span class="ok">{L("已复制", "Copied")} ✓</span></button>
+      </div>
     </div>
     <div class="scroll">{table_html}</div>
   </div>
