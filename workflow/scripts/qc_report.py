@@ -2,7 +2,7 @@
 单文件 HTML QC 报告：概览、流程与参数、QC 汇总表（中英文可切换）。
 所有样式、脚本和流程图都内嵌，不依赖网络。各列说明、参考值和检查规则来自 workflow/report/qc_metrics.yaml：
   checks  有公开阈值的检查（warn 橙 / fail 红）
-  outlier 与本批样本比较，|值 - 中位数| > 3 x MAD（x 1.4826）标为橙色
+  outlier 没有固定阈值的指标与本批样本比较，|值 - 中位数| > 3 x MAD（x 1.4826）标为橙色
 """
 import html
 import re
@@ -202,8 +202,11 @@ if len(full):
 if "umi_dedup_reads" in cols and col("umi_dedup_reads").notna().any():
     d_m, d_r = rng(col("umi_dedup_reads"), 1e6, 1, "M")
     u_m, u_r = rng(col("umi_duplicates_rate"))
-    zh += f" UMI 去重后中位数 {d_m}（{d_r}），UMI 重复率中位数 {u_m}%（{u_r}%），独立分子数应按去重后的 reads 评估。"
-    en += f" After UMI deduplication the median is {d_m} ({d_r}) with a median UMI duplicate rate of {u_m}% ({u_r}%); judge library depth by deduplicated reads."
+    u_hi = df.loc[col("umi_duplicates_rate") > 50, "sample"].tolist()
+    zh += (f" UMI 去重后中位数 {d_m}（{d_r}），UMI 重复率中位数 {u_m}%（{u_r}%）"
+           + (f"，{len(u_hi)} 个超过 50%（{names(u_hi)}）" if u_hi else "") + "；独立分子数应按去重后的 reads 评估。")
+    en += (f" After UMI deduplication the median is {d_m} ({d_r}) with a median UMI duplicate rate of {u_m}% ({u_r}%)"
+           + (f", {len(u_hi)} above 50% ({names(u_hi)})" if u_hi else "") + "; judge library depth by deduplicated reads.")
 points.append((zh, en))
 
 h_m, h_r = rng(col("mapping_rate"))
@@ -270,7 +273,15 @@ sources = " · ".join(
 # ------------------------------------------------------------
 # 流程与参数
 # ------------------------------------------------------------
-svg = re.sub(r"^<\?xml[^>]*>\s*", "", Path(snakemake.input.flowchart).read_text())
+def flow_svg(path, prefix):
+    """内嵌流程图 SVG；中英文两份同时嵌入，按语言显示其一（id 加前缀，避免冲突）。"""
+    t = re.sub(r"^<\?xml[^>]*>\s*", "", Path(path).read_text())
+    t = re.sub(r'\bid="([^"]+)"', rf'id="{prefix}-\1"', t)
+    return re.sub(r"url\(#([^)]+)\)", rf"url(#{prefix}-\1)", t)
+
+
+svg = (f'<div data-l="zh">{flow_svg(snakemake.input.flowchart, "flow-zh")}</div>'
+       f'<div data-l="en">{flow_svg(snakemake.input.flowchart_en, "flow-en")}</div>')
 settings_html = "".join(f"<tr><th>{L(kz, ke)}</th><td>{L(vz, ve)}</td></tr>" for kz, ke, vz, ve in p.settings)
 
 
@@ -355,6 +366,7 @@ nav a.item.active { background: var(--accent); color: #fff; }
 nav .ext { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
 nav .ext a { display: block; padding: 6px 12px; font-size: 13px; }
 main { margin-left: 232px; padding: 40px 48px 80px; max-width: 1480px; }
+header.top .pipe { display: inline-block; font-size: 14px; font-weight: 600; margin-bottom: 6px; }
 header.top h1 { font-size: 32px; font-weight: 700; letter-spacing: -.02em; margin: 0; }
 header.top .project { margin-top: 8px; font-size: 15px; font-weight: 600; }
 header.top .project .path { color: var(--muted); font-weight: 400; font-size: 13px; margin-left: 8px; overflow-wrap: anywhere; }
@@ -515,7 +527,7 @@ page = f"""<!doctype html>
 <body>
 <nav>
   <div class="brand">{L(title_zh, title_en)}</div>
-  <div class="brand-sub">{esc(p.pipeline)}</div>
+  <div class="brand-sub"><a href="{esc(p.github)}" target="_blank" rel="noopener">{esc(p.pipeline)}</a></div>
   <div class="seg"><button data-lang="zh">中文</button><button data-lang="en">EN</button></div>
   <a class="item" href="#overview">{L("概览", "Overview")}</a>
   <a class="item" href="#workflow">{L("流程与参数", "Workflow & parameters")}</a>
@@ -524,9 +536,10 @@ page = f"""<!doctype html>
 </nav>
 <main>
 <header class="top">
+  <a class="pipe" href="{esc(p.github)}" target="_blank" rel="noopener" title="GitHub">{esc(p.pipeline)} ↗</a>
   <h1>{L(title_zh, title_en)}</h1>
   <div class="project">{esc(PROJECT)}<span class="path">{esc(str(OUTDIR))}</span></div>
-  <div class="meta">{esc(p.pipeline)} {esc(p.version)} · {L("生成于", "generated")} {datetime.now():%Y-%m-%d %H:%M} · {L(f"{n} 个样本", f"{n} samples")}</div>
+  <div class="meta">{L("流程版本", "Pipeline version")} {esc(p.version)} · {L("生成于", "generated")} {datetime.now():%Y-%m-%d %H:%M} · {L(f"{n} 个样本", f"{n} samples")}</div>
 </header>
 
 <section id="overview">

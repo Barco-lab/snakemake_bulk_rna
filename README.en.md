@@ -4,9 +4,9 @@
 
 Local bulk RNA-seq pipeline (Snakemake ≥ 9.12):
 
-![workflow](docs/images/bulk_rna_workflow.svg)
+![workflow](docs/images/bulk_rna_workflow.en.svg)
 
-<sub>Solid boxes are the main workflow, dashed boxes are optional or per-sample conditional steps, green boxes are QC, and ★ marks deliverables (paths relative to `results/`). The diagram labels are in Chinese. PNG version: `docs/images/bulk_rna_workflow.png`.</sub>
+<sub>Solid boxes are the main workflow, dashed boxes are optional or per-sample conditional steps, green boxes are QC, and ★ marks deliverables (paths relative to `results/`). PNG version: `docs/images/bulk_rna_workflow.en.png`.</sub>
 
 <details>
 <summary>Text version</summary>
@@ -225,7 +225,7 @@ project/
 | `umi_dedup_reads` | reads after UMI deduplication (UMI samples only), counted by read name so multi-mapped reads count once. The UMI-tools section of MultiQC counts alignment records and is higher; use this table |
 | `clean_rate (% of raw)` | clean_reads / raw_reads |
 | `mapping_rate (% of clean)` | mapped_reads / clean_reads, i.e. the hisat2 overall alignment rate |
-| `umi_dedup_rate (% of mapped)` / `umi_duplicates_rate (% of mapped)` | deduplicated reads / mapped reads before dedup; the two add up to 100 (UMI samples only) |
+| `umi_dedup_rate (% of mapped)` / `umi_duplicates_rate (% of mapped)` | deduplicated reads / mapped reads before dedup; the two add up to 100 (UMI samples only); the report flags umi_duplicates_rate above 50% |
 | `assigned_rate (% of counted)` | reads assigned to genes by featureCounts / reads entering featureCounts (deduplicated for UMI samples, mapped otherwise; fragments × 2 for PE) |
 | `intron_rate (% of counted)` | intronic reads / reads entering featureCounts (see "Nuclear RNA-seq" above). Usually low for whole-cell RNA and much higher for nuclear RNA |
 | `strand_*` | strandedness: given, inferred, used, status |

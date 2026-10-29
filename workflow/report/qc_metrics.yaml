@@ -5,8 +5,9 @@
 #   desc     含义与计算方式（鼠标停在表头上显示）
 #   ref      参考值
 #   sources  出处，对应下方 sources 的键
-#   outlier  true 时与本批样本比较：|值 - 中位数| > 3 x MAD（MAD x 1.4826 换算为标准差尺度）标为橙色
-#   checks   有公开阈值的检查。when 限定样本（按 summary.tsv 的列取值），expr 为 Python 表达式，
+#   outlier  true 时与本批样本比较：|值 - 中位数| > 3 x MAD（MAD x 1.4826 换算为标准差尺度）标为橙色；
+#            只用于没有固定阈值的指标
+#   checks   有固定阈值的检查（有阈值的指标不再按离群提醒）。when 限定样本（按 summary.tsv 的列取值），expr 为 Python 表达式，
 #            可直接使用各列名（不含括号部分）；level 为 warn（橙）或 fail（红）
 # rate 以进入该步骤的 reads 为分母（%，见 summary.tsv 表头括号），与各软件报告和公开参考值口径一致。
 
@@ -89,7 +90,6 @@ metrics:
       zh: 常规 RNA-seq 在人类基因组上预期 70–90%
       en: 70–90% of regular RNA-seq reads expected to map to the human genome
     sources: [Conesa2016]
-    outlier: true
     checks:
       - expr: mapping_rate < 70
         level: warn
@@ -105,9 +105,12 @@ metrics:
       zh: (去重前比对上的 reads − umi_dedup_reads) / 去重前比对上的 reads，即 100 − umi_dedup_rate
       en: (mapped reads before dedup − umi_dedup_reads) / mapped reads before dedup, i.e. 100 − umi_dedup_rate
     ref:
-      zh: 无统一标准，随起始量和测序深度升高；偏高提示文库复杂度低或测序过饱和
-      en: No consensus threshold; rises with low input and deep sequencing; high values suggest low complexity or saturation
-    outlier: true
+      zh: 超过 50% 时提示。随起始量和测序深度升高；偏高提示文库复杂度低或测序过饱和
+      en: Flagged above 50%. Rises with low input and deep sequencing; high values suggest low complexity or saturation
+    checks:
+      - expr: umi_duplicates_rate > 50
+        level: warn
+        message: {zh: UMI 重复率超过 50%, en: UMI duplicate rate above 50%}
   assigned_rate:
     desc:
       zh: featureCounts 计入基因 exon 的 reads / 进入 featureCounts 的 reads（UMI 样本为去重后，其余为 mapped；PE 为片段数 × 2），与 MultiQC 的 % Assigned 口径相同

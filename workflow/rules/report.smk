@@ -126,11 +126,13 @@ rule qc_report:
         multiqc="results/qc/multiqc/multiqc_report.html",
         metrics=workflow.source_path("../report/qc_metrics.yaml"),
         flowchart=workflow.source_path("../../docs/images/bulk_rna_workflow.svg"),
+        flowchart_en=workflow.source_path("../../docs/images/bulk_rna_workflow.en.svg"),
     output:
         "results/qc/report.html",
     params:
         title=("bulk RNA-seq QC 报告", "bulk RNA-seq QC report"),
         pipeline="snakemake_bulk_rna",
+        github="https://github.com/Barco-lab/snakemake_bulk_rna",
         version=pipeline_version(Path(workflow.basedir).parent),
         settings=report_settings(),
         multiqc="multiqc/multiqc_report.html",  # 相对 report.html 的路径

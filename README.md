@@ -225,7 +225,7 @@ project/
 | `umi_dedup_reads` | UMI 去重后的 reads（仅 UMI 样本）。按 read 名计数，多重比对的 read 只算一次。MultiQC 的 UMI-tools 部分是 umi_tools 自己按比对记录计的，数值会偏大，以本表为准 |
 | `clean_rate (% of raw)` | clean_reads / raw_reads |
 | `mapping_rate (% of clean)` | mapped_reads / clean_reads，即 hisat2 overall alignment rate |
-| `umi_dedup_rate (% of mapped)` / `umi_duplicates_rate (% of mapped)` | 去重后 reads / 去重前比对上的 reads；两者之和为 100（仅 UMI 样本） |
+| `umi_dedup_rate (% of mapped)` / `umi_duplicates_rate (% of mapped)` | 去重后 reads / 去重前比对上的 reads；两者之和为 100（仅 UMI 样本）；报告中 umi_duplicates_rate > 50% 时提示 |
 | `assigned_rate (% of counted)` | featureCounts 计入基因的 reads / 进入 featureCounts 的 reads（UMI 样本为去重后，其余为 mapped；PE 的片段数 × 2） |
 | `intron_rate (% of counted)` | 内含子 reads / 进入 featureCounts 的 reads（见下方"核 RNA"）。全细胞 RNA 通常较低，核 RNA 明显更高 |
 | `strand_*` | 链方向：填写值、推断值、实际使用值、状态 |
