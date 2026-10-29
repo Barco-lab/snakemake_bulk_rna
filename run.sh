@@ -96,7 +96,8 @@ smk=("$SMK_ENV/bin/snakemake"
     --cores "$cores")
 
 echo ">> 预览将要运行的任务..."
-"${smk[@]}" --dry-run --quiet rules ${extra[@]+"${extra[@]}"}
+# 额外参数放在 --quiet rules 之前，否则目标文件会被当作 --quiet 的取值
+"${smk[@]}" ${extra[@]+"${extra[@]}"} --dry-run --quiet rules
 [ "$dry" -eq 1 ] && exit 0
 
 if [ "$yes" -ne 1 ]; then
